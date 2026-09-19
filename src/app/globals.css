@@ -1,0 +1,207 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Shared CHAINTRACE presentation. Solid surfaces keep long evidence views light. */
+@layer components {
+  .workflow-strip { @apply rounded-2xl border border-slate-800 bg-slate-900/60 p-4; }
+  .section-link { @apply rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2 text-xs font-medium text-slate-300 hover:border-cyan-400/40 hover:text-cyan-100; }
+  .skip-link { @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-xl bg-cyan-300 px-4 py-3 font-semibold text-slate-950 focus:translate-y-0; }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --cf-ink: #ecf5ff;
+    --cf-muted: #a1aec2;
+    --cf-canvas: #040914;
+    --cf-sidebar: #060d1a;
+    --cf-header: #07111f;
+    --cf-panel: rgb(12 23 41 / 0.72);
+    --cf-panel-strong: rgb(10 22 40 / 0.9);
+    --cf-line: rgb(90 123 160 / 0.34);
+    --cf-line-strong: rgb(103 232 249 / 0.26);
+  }
+
+  * { border-color: var(--cf-line); }
+  html { min-width: 320px; background: var(--cf-canvas); scroll-behavior: smooth; }
+  body {
+    min-height: 100vh;
+    overflow-x: hidden;
+    color: var(--cf-ink);
+    font-family: Inter, "Aptos", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    text-rendering: optimizeLegibility;
+    background-color: var(--cf-canvas);
+    background-image:
+      radial-gradient(ellipse 75rem 48rem at 92% -13%, rgb(14 116 144 / 0.17), transparent 66%),
+      radial-gradient(ellipse 60rem 43rem at -14% 74%, rgb(49 46 129 / 0.11), transparent 67%),
+      linear-gradient(rgb(148 163 184 / 0.021) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(148 163 184 / 0.021) 1px, transparent 1px);
+    background-size: auto, auto, 38px 38px, 38px 38px;
+  }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: rgb(2 6 15 / 0.52); }
+  ::-webkit-scrollbar-thumb { border: 3px solid rgb(2 6 15 / 0.52); border-radius: 999px; background: rgb(71 92 122 / 0.78); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(103 232 249 / 0.48); }
+
+  button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled), a { transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease; }
+  button:not(:disabled) { cursor: pointer; }
+  input, select, textarea { accent-color: #67e8f9; }
+  ::selection { background: rgb(34 211 238 / 0.28); color: white; }
+  :focus-visible { outline: 2px solid rgb(103 232 249); outline-offset: 3px; }
+  main table th { font-weight: 600; }
+  main [id] { scroll-margin-top: 6rem; }
+  main h1 { overflow-wrap: anywhere; }
+  main :is(section, article, form) { min-width: 0; }
+  main table { font-variant-numeric: tabular-nums; }
+  main table tbody tr { transition: background-color 150ms ease; }
+  main :is(section, article, form).rounded-2xl { border-radius: 0.9rem; }
+}
+
+@layer components {
+  .app-shell { isolation: isolate; }
+  .app-shell::before {
+    content: "";
+    pointer-events: none;
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(circle at 74% 4%, rgb(14 116 144 / 0.10), transparent 32rem),
+      radial-gradient(circle at 38% 88%, rgb(49 46 129 / 0.09), transparent 38rem);
+  }
+  .cf-sidebar {
+    background-color: var(--cf-sidebar);
+    background-image:
+      linear-gradient(180deg, rgb(8 24 43 / 0.64), transparent 22%),
+      linear-gradient(rgb(103 232 249 / 0.026) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(103 232 249 / 0.026) 1px, transparent 1px);
+    background-size: auto, 24px 24px, 24px 24px;
+    box-shadow: 18px 0 48px rgb(0 0 0 / 0.20), inset -1px 0 0 rgb(103 232 249 / 0.035);
+  }
+  .cf-brand-mark {
+    background: linear-gradient(145deg, rgb(34 211 238 / 0.18), rgb(59 130 246 / 0.07));
+    box-shadow: 0 0 0 1px rgb(103 232 249 / 0.08), 0 12px 30px rgb(8 145 178 / 0.15), inset 0 1px 0 rgb(255 255 255 / 0.09);
+  }
+  .command-header {
+    background-color: rgb(7 17 31 / 0.83);
+    background-image: linear-gradient(90deg, rgb(103 232 249 / 0.035), transparent 20%, transparent 80%, rgb(124 58 237 / 0.035));
+    box-shadow: 0 8px 28px rgb(0 0 0 / 0.13), inset 0 -1px 0 rgb(103 232 249 / 0.04);
+  }
+  .page-header {
+    @apply flex flex-col gap-4 border-b border-slate-800/90 pb-6 sm:flex-row sm:items-end sm:justify-between;
+    position: relative;
+  }
+  .page-header::after {
+    content: "";
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    height: 1px;
+    width: 7rem;
+    background: linear-gradient(90deg, rgb(103 232 249 / 0.9), transparent);
+  }
+  .page-title { @apply mt-2 text-3xl font-semibold tracking-tight text-white sm:text-[2rem]; }
+  .page-description { @apply mt-2 max-w-3xl text-sm leading-6 text-slate-400; }
+  .surface {
+    @apply border border-slate-700/70 bg-slate-900/70 shadow-2xl shadow-slate-950/30 backdrop-blur-xl;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.038), 0 18px 42px rgb(0 0 0 / 0.15);
+  }
+  .surface-primary {
+    @apply border border-cyan-400/20 bg-slate-900/80 shadow-2xl shadow-cyan-950/10 backdrop-blur-xl;
+    box-shadow: inset 0 1px 0 rgb(165 243 252 / 0.075), 0 20px 46px rgb(0 0 0 / 0.17);
+  }
+  .surface-subtle { @apply border border-slate-800/90 bg-slate-950/45; }
+  .panel {
+    @apply rounded-2xl border border-slate-700/70 bg-slate-900/65 backdrop-blur-xl;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 18px 42px rgb(0 0 0 / 0.14);
+  }
+  .panel-primary {
+    @apply rounded-2xl border border-cyan-400/20 bg-slate-900/75 backdrop-blur-xl;
+    background-image: linear-gradient(135deg, rgb(34 211 238 / 0.045), transparent 38%);
+    box-shadow: inset 0 1px 0 rgb(165 243 252 / 0.07), 0 20px 46px rgb(0 0 0 / 0.16);
+  }
+  .command-panel {
+    @apply relative overflow-hidden rounded-2xl border border-cyan-400/20 bg-slate-900/75 backdrop-blur-xl;
+    background-image: linear-gradient(135deg, rgb(34 211 238 / 0.07), transparent 45%);
+    box-shadow: inset 0 1px 0 rgb(165 243 252 / 0.08), 0 24px 52px rgb(0 0 0 / 0.19);
+  }
+  .command-panel::before { content: ""; pointer-events: none; position: absolute; inset: 0 0 auto; height: 1px; background: linear-gradient(90deg, transparent, rgb(103 232 249 / 0.66), transparent); }
+  .eyebrow { @apply text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300; }
+  .meta-label { @apply text-[10px] font-medium uppercase tracking-[0.16em] text-slate-500; }
+  .field { @apply block w-full rounded-xl border border-slate-700 bg-slate-950/80 px-3 py-2.5 text-sm text-white shadow-inner shadow-black/20 outline-none transition placeholder:text-slate-600 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/15; }
+  .command-input { @apply w-full rounded-xl border border-slate-700/90 bg-slate-950/75 py-3 pl-10 pr-20 text-sm text-slate-100 shadow-inner shadow-black/20 outline-none transition placeholder:text-slate-600 focus:border-cyan-400/70 focus:ring-2 focus:ring-cyan-400/15; }
+  .button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-200/30 bg-cyan-300 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-lg shadow-cyan-950/25 transition hover:-translate-y-0.5 hover:bg-cyan-200 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60;
+    box-shadow: 0 9px 24px rgb(8 145 178 / 0.17), inset 0 1px 0 rgb(255 255 255 / 0.38);
+  }
+  .button-secondary { @apply inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900/75 px-4 py-2.5 text-sm font-medium text-slate-200 shadow-sm shadow-black/20 transition hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-slate-800 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60; }
+  .status-chip { @apply inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em]; }
+  .metric-card {
+    @apply relative overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/65 p-5 backdrop-blur-xl transition;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.045), 0 18px 36px rgb(0 0 0 / 0.14);
+  }
+  .metric-card:hover { @apply -translate-y-0.5 border-slate-600 bg-slate-900/85; box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07), 0 22px 42px rgb(0 0 0 / 0.18); }
+  .metric-card::before { content: ""; @apply absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/35 to-transparent; }
+  .technical-table { @apply w-full text-left text-sm; }
+  .technical-table thead { @apply bg-slate-950/70 text-[10px] uppercase tracking-[0.14em] text-slate-500; }
+  .technical-table th { @apply whitespace-nowrap px-4 py-3; }
+  .technical-table td { @apply px-4 py-3.5; }
+  .technical-table tbody { @apply divide-y divide-slate-800/90; }
+  .technical-table tbody tr { @apply hover:bg-cyan-400/[0.035]; }
+  .filter-control { @apply min-w-0 rounded-xl border border-slate-700/90 bg-slate-950/75 px-3 py-2.5 text-sm text-slate-200 outline-none transition focus:border-cyan-400/80 focus:ring-2 focus:ring-cyan-400/15; }
+  .evidence-note { @apply rounded-xl border border-cyan-400/15 bg-cyan-400/[0.045] p-4 text-xs leading-5 text-cyan-100; }
+  .empty-state { @apply rounded-2xl border border-dashed border-slate-700 bg-slate-950/35 p-8 text-center text-sm text-slate-500; }
+  .intelligence-card {
+    @apply relative overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/65 p-5 shadow-xl shadow-slate-950/20 transition;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035), 0 18px 35px rgb(0 0 0 / 0.12);
+  }
+  .intelligence-card:hover { @apply -translate-y-0.5 border-slate-600/90 bg-slate-900/80; }
+  .intelligence-card::after { content: ""; @apply pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/25 to-transparent; }
+  .sidebar-grid { background-image: linear-gradient(rgb(103 232 249 / 0.025) 1px, transparent 1px), linear-gradient(90deg, rgb(103 232 249 / 0.025) 1px, transparent 1px); background-size: 24px 24px; }
+  .critical-signal { animation: critical-pulse 2.4s ease-in-out infinite; }
+  .scanning-surface { position: relative; overflow: hidden; }
+  .scanning-surface::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(105deg, transparent 28%, rgb(103 232 249 / 0.11) 48%, transparent 68%); transform: translateX(-115%); animation: scan-line 1.45s ease-in-out infinite; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  main > div { animation: workspace-enter 280ms ease-out both; }
+  @keyframes workspace-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes critical-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgb(248 113 113 / 0); } 50% { box-shadow: 0 0 0 5px rgb(248 113 113 / 0.08); } }
+  @keyframes scan-line { 0% { transform: translateX(-115%); } 65%, 100% { transform: translateX(115%); } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}
+
+@media print {
+  body { background: white; color: black; }
+  .app-shell > aside, .app-shell > div > header { display: none !important; }
+  .app-shell > div { width: 100% !important; }
+}
+
+/* Consistent visual hierarchy across existing Phase 1–5 components. */
+.app-shell .text-slate-500 { color: #94a3b8; }
+.app-shell .text-slate-600 { color: #8594aa; }
+.app-shell :is(.panel, .panel-primary, .surface, .surface-primary, .metric-card, .command-panel) {
+  backdrop-filter: none;
+  background-color: #0d1728;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035), 0 8px 24px rgb(0 0 0 / 0.1);
+}
+.app-shell .panel-primary { border-color: rgb(103 232 249 / 0.24); }
+.app-shell .technical-table thead { background: #101d30; color: #a9bdd1; }
+.app-shell .technical-table tbody tr:nth-child(even) { background-color: rgb(148 163 184 / 0.025); }
+.app-shell .technical-table tbody tr:hover { background-color: rgb(34 211 238 / 0.055); }
+.app-shell .technical-table td { vertical-align: top; }
+.app-shell .empty-state { color: #a1aec2; padding: 2.5rem 1.5rem; }
+.app-shell button:disabled { transform: none; }
+@media (max-width: 767px) {
+  .app-shell .page-title { font-size: 1.75rem; }
+  .app-shell .technical-table td { padding-top: 1rem; padding-bottom: 1rem; }
+  .workflow-strip { padding: 0.875rem; }
+  .workflow-strip ol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .workflow-strip ol li:last-child { grid-column: 1 / -1; }
+}
