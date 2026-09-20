@@ -1,53 +1,57 @@
 'use client';
-
-import { FormEvent, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, CheckCircle2, FileWarning, Loader2, ShieldCheck } from 'lucide-react';
+import { Loader2, CheckCircle2 } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/client-api';
-
-type SubmittedCase = { id: string; case_code: string; title: string };
-const ETHEREUM_ADDRESS_PATTERN = /^0x[a-fA-F0-9]{40}$/;
-const HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
+import { INCIDENT_TYPES, STATUS_LABELS, validateReport, reportInvestigationUrl, type VictimReport } from '@/lib/victim-reports';
+import { WalletAddress } from '@/components/wallet-address';
 
 export default function ReportWallet() {
-  const [submitted, setSubmitted] = useState<SubmittedCase | null>(null);
+  const [submitted, setSubmitted] = useState<VictimReport | null>(null);
   const [error, setError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submitReport(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const wallet = String(form.get('wallet') || '').trim();
-    const transactionHash = String(form.get('transactionHash') || '').trim();
-    const amount = String(form.get('amount') || '').trim();
-    const dateTime = String(form.get('dateTime') || '').trim();
-    const description = String(form.get('description') || '').trim();
-    const reference = String(form.get('reference') || '').trim();
+  const [busy, setBusy] = useState(false);
+  const lock = useRef(false);
+  const [refresh, setRefresh] = useState(0);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (lock.current) return;
+    const form = event.currentTarget;
+    const parsed = validateReport(Object.fromEntries(new FormData(form)));
     setError('');
-    if (!ETHEREUM_ADDRESS_PATTERN.test(wallet)) { setError('Enter a valid Ethereum wallet address beginning with 0x.'); return; }
-    if (transactionHash && !HASH_PATTERN.test(transactionHash)) { setError('Transaction hash must be a 0x-prefixed 64-character Ethereum transaction hash.'); return; }
-    const reportDetails = [
-      'Victim / authorized analyst report',
-      transactionHash ? `Transaction hash: ${transactionHash}` : null,
-      amount ? `Approximate amount: ${amount}` : null,
-      dateTime ? `Reported incident date/time: ${dateTime}` : null,
-      reference ? `Reference: ${reference}` : null,
-      description ? `Description: ${description}` : null,
-    ].filter(Boolean).join('\n');
-    setSubmitting(true);
+    if (!parsed.data) { setError(parsed.error!); return; }
+    lock.current = true; setBusy(true);
     try {
-      const response = await authenticatedFetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: `Wallet report: ${wallet}`, description: reportDetails, status: 'open', wallets: [wallet] }) });
+      const response = await authenticatedFetch('/api/victim-reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(parsed.data) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Unable to submit the report.');
-      setSubmitted(payload.case as SubmittedCase);
-      event.currentTarget.reset();
-    } catch (submitError) { setError(submitError instanceof Error ? submitError.message : 'Unable to submit the report.'); }
-    finally { setSubmitting(false); }
+      if (!payload.report?.id) throw new Error('No saved report was returned. Submission is not confirmed.');
+      setSubmitted(payload.report); setRefresh(value => value + 1); form.reset();
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to submit the report.'); }
+    finally { lock.current = false; setBusy(false); }
   }
-
-  if (submitted) return <div className="mx-auto max-w-2xl py-10"><section className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-8 text-center"><CheckCircle2 size={32} className="mx-auto text-emerald-300" /><p className="mt-4 text-xs font-medium uppercase tracking-[0.18em] text-emerald-200">Report submitted</p><h1 className="mt-2 text-2xl font-semibold text-white">Case {submitted.case_code} created</h1><p className="mt-3 text-sm leading-6 text-slate-300">Your report was saved as a private investigation case. It does not determine fraud or freeze assets.</p><div className="mt-6 flex flex-wrap justify-center gap-3"><Link href={`/cases/${submitted.id}`} className="rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Open case</Link><button type="button" onClick={() => setSubmitted(null)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800">Submit another report</button></div></section></div>;
-
-  return <div className="mx-auto max-w-4xl space-y-6 pb-10"><header className="border-b border-slate-800 pb-6"><p className="text-xs font-medium uppercase tracking-[0.18em] text-cyan-300">Evidence intake</p><h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">Report a suspect wallet</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Create a private case with the reported Ethereum wallet and the facts you can safely share. Never include a private key, seed phrase, password, or one-time code.</p></header>{error && <div role="alert" className="flex gap-2 rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200"><AlertCircle size={18} className="shrink-0" />{error}</div>}<form onSubmit={submitReport} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-5 sm:p-6"><div className="grid gap-5 md:grid-cols-2"><Field label="Wallet address" required><input name="wallet" required autoComplete="off" spellCheck={false} placeholder="0x…" className="field font-mono" /></Field><Field label="Blockchain network"><div className="field flex items-center text-slate-300"><span className="mr-2 h-2 w-2 rounded-full bg-cyan-300" />Ethereum Mainnet</div></Field><Field label="Transaction hash"><input name="transactionHash" autoComplete="off" spellCheck={false} placeholder="0x…" className="field font-mono" /></Field><Field label="Approximate amount"><input name="amount" placeholder="For example: 1.25 ETH" className="field" /></Field><Field label="Date and time"><input name="dateTime" type="datetime-local" className="field" /></Field><Field label="Reference (optional)"><input name="reference" maxLength={300} placeholder="Police / ticket / internal reference" className="field" /></Field><div className="md:col-span-2"><Field label="Description"><textarea name="description" rows={5} maxLength={5000} placeholder="Describe the observed facts, what happened, and any context useful to an authorized investigator." className="field resize-y" /></Field></div></div><div className="mt-6 flex flex-col justify-between gap-4 border-t border-slate-800 pt-5 sm:flex-row sm:items-center"><p className="flex max-w-xl gap-2 text-xs leading-5 text-slate-500"><ShieldCheck size={16} className="mt-0.5 shrink-0 text-cyan-300" />Submitted information becomes part of a private case record. Evidence attachments are not enabled in this workflow.</p><button disabled={submitting} className="inline-flex items-center justify-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? <Loader2 size={17} className="animate-spin" /> : <FileWarning size={17} />}{submitting ? 'Submitting report' : 'Submit report'}</button></div></form></div>;
+  return <div className="mx-auto max-w-5xl space-y-6 pb-10">
+    <header className="page-header"><div><p className="eyebrow">Private allegation intake</p><h1 className="page-title">Report Suspicious Crypto Activity</h1><p className="page-description">Submit information about a suspected cryptocurrency fraud incident. Submitted information is an allegation and requires verification through blockchain analysis and investigation.</p></div></header>
+    <section className="rounded-xl border border-amber-400/25 bg-amber-400/5 p-4"><h2 className="text-sm font-semibold text-amber-100">Safety notice</h2><p className="mt-2 text-sm text-amber-100">Never submit seed phrases, private keys, passwords, or authentication codes.</p><p className="mt-2 text-xs text-slate-400">Avoid unnecessary personal information. Use a ticket or case reference instead of contact details. Reports are private to your account.</p></section>
+    {error && <p role="alert" className="rounded-xl border border-red-400/25 p-4 text-sm text-red-200">{error}</p>}
+    {submitted ? <section role="status" className="panel space-y-4 p-6"><CheckCircle2 className="text-emerald-300" /><h2 className="text-xl font-semibold text-white">Report submitted successfully.</h2><p className="text-sm text-slate-400">Saved as an allegation. Submission does not verify any claim or determine fraud.</p><dl className="space-y-2 text-sm text-slate-300"><div><dt>Reference ID</dt><dd className="break-all font-mono text-cyan-200">{submitted.id}</dd></div><div><dt>Status</dt><dd>{STATUS_LABELS[submitted.status]}</dd></div><div><dt>Reported wallet</dt><dd><WalletAddress address={submitted.suspect_wallet} /></dd></div><div><dt>Submitted</dt><dd>{new Date(submitted.created_at).toLocaleString()} (local time)</dd></div></dl><div className="flex flex-wrap gap-3"><Link className="button-primary" href={reportInvestigationUrl(submitted)}>Investigate Wallet</Link><Link className="button-secondary" href={'/report/' + submitted.id}>View Report</Link><Link className="button-secondary" href={'/cases?report=' + submitted.id}>Prepare Investigation Case</Link><button className="button-secondary" onClick={() => setSubmitted(null)}>Submit another report</button></div></section> :
+    <form onSubmit={submit} className="panel p-5 sm:p-6"><fieldset disabled={busy} className="space-y-6"><legend className="mb-4 text-lg font-semibold text-white">Incident Details</legend><p className="text-xs text-slate-400">Fields marked * are required. All values below are victim-provided information, not blockchain-verified evidence.</p><div className="grid gap-5 md:grid-cols-2">
+      <Field label="Incident type *"><select name="incident_type" required className="field" defaultValue=""><option value="" disabled>Select reported incident type</option>{INCIDENT_TYPES.map(type => <option key={type}>{type}</option>)}</select></Field>
+      <Field label="Incident date *"><input name="incident_date" required type="date" min="2009-01-01" max={new Date().toISOString().slice(0,10)} className="field" /></Field>
+      <Field label="Approximate loss amount *"><input name="approximate_loss" required inputMode="decimal" maxLength={37} placeholder="e.g. 1.25 (use 0 if no loss)" className="field" /></Field>
+      <Field label="Loss currency / token symbol *"><input name="loss_currency" required maxLength={12} placeholder="ETH, USD, USDT?" className="field" /></Field>
+    </div><h2 className="text-lg font-semibold text-white">Blockchain Evidence ? reported</h2><div className="grid gap-5 md:grid-cols-2">
+      <Field label="Suspect wallet address *"><input name="suspect_wallet" required maxLength={42} autoComplete="off" spellCheck={false} placeholder="0x?" className="field font-mono" /></Field>
+      <Field label="Blockchain / network *"><select name="network" required className="field"><option value="ethereum">Ethereum Mainnet</option></select></Field>
+      <Field label="Transaction hash (optional)"><input name="transaction_hash" maxLength={66} autoComplete="off" spellCheck={false} placeholder="0x?" className="field font-mono" /></Field>
+      <Field label="Service / exchange mentioned (optional)"><input name="reported_service" maxLength={200} className="field" placeholder="Unverified victim attribution" /></Field>
+    </div><p className="text-xs leading-5 text-slate-400">Only Ethereum Mainnet is currently supported. Address/hash validation checks format only. It does not prove that a transaction exists or that a service owns an address.</p>
+    <h2 className="text-lg font-semibold text-white">Incident Description</h2><Field label="Describe what happened *"><textarea name="description" required minLength={10} maxLength={5000} rows={5} className="field resize-y" /></Field><Field label="Reference (optional)"><input name="reference" maxLength={200} className="field" placeholder="Police / ticket / internal reference; no secrets" /></Field><Field label="Additional notes (optional)"><textarea name="additional_notes" rows={3} maxLength={2000} className="field resize-y" /></Field>
+    <button className="button-primary" disabled={busy}>{busy && <Loader2 size={16} className="animate-spin" />}{busy ? 'Submitting?' : 'Submit Report'}</button></fieldset></form>}
+    <ReportRegister refresh={refresh} />
+  </div>;
 }
-
-function Field({ label, required = false, children }: { label: string; required?: boolean; children: React.ReactNode }) { return <label className="block text-sm font-medium text-slate-300"><span className="mb-2 block">{label}{required && <span className="text-cyan-300"> *</span>}</span>{children}</label>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="block min-w-0 text-sm text-slate-300"><span className="mb-2 block">{label}</span>{children}</label>; }
+function ReportRegister({ refresh }: { refresh: number }) {
+  const [reports,setReports] = useState<VictimReport[]>([]), [error,setError] = useState(''), [loading,setLoading] = useState(true), [page,setPage] = useState(1), [total,setTotal] = useState(0);
+  const load = useCallback(async () => { setLoading(true); setError(''); try { const response = await authenticatedFetch('/api/victim-reports?page=' + page); const data=await response.json(); setReports(data.reports); setTotal(data.total); } catch(failure) { setError(failure instanceof Error ? failure.message : 'Unable to load reports.'); } finally { setLoading(false); } }, [page]);
+  useEffect(() => { void load(); }, [load, refresh]);
+  return <section className="panel p-5"><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold text-white">Your submitted reports</h2><button className="button-secondary" disabled={loading} onClick={() => void load()}>Refresh</button></div>{loading ? <p role="status" className="mt-4 text-sm text-slate-400">Loading reports?</p> : error ? <p role="alert" className="mt-4 text-sm text-red-200">{error}</p> : <><p className="mt-3 text-xs text-slate-400">{total} private reports. These are allegations, not verified findings.</p><div className="mt-4 space-y-3">{reports.map(report => <Link key={report.id} href={'/report/' + report.id} className="block rounded-xl border border-slate-800 p-4 hover:border-cyan-400/40"><p className="break-all font-mono text-xs text-cyan-200">{report.id}</p><p className="mt-2 text-sm text-slate-300">{report.incident_type} ? {STATUS_LABELS[report.status]}</p><p className="mt-2 break-all text-xs text-slate-500">{report.suspect_wallet}</p></Link>)}{!reports.length && <p className="text-sm text-slate-400">No reports on this page.</p>}</div><div className="mt-4 flex items-center justify-between gap-3"><button className="button-secondary" disabled={page === 1} onClick={() => setPage(page-1)}>Previous</button><span className="text-xs text-slate-400">Page {page}</span><button className="button-secondary" disabled={page*10 >= total} onClick={() => setPage(page+1)}>Next</button></div></>}</section>;
+}

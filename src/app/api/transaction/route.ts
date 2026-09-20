@@ -66,8 +66,9 @@ export async function GET(request: NextRequest) {
       network: 'Ethereum Mainnet',
       verifiedAt: new Date().toISOString(),
     });
-  } catch (error) {
-    console.error('Transaction lookup error:', error);
+  } catch {
+    // viem exceptions may embed the credential-bearing provider URL.
+    console.error('Ethereum transaction retrieval failed.', { operation: 'transaction_lookup' });
     return response({ error: 'The Ethereum data service could not retrieve this transaction.' }, 502);
   }
 }

@@ -1,104 +1,103 @@
+'use client';
+
 import Link from 'next/link';
-import { ArrowRight, Bot, BrainCircuit, CircleDashed, Clock3, FileSearch, Fingerprint, MessageSquareText, ShieldAlert, Sparkles } from 'lucide-react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
+import { Bot, Loader2, Send, ShieldCheck } from 'lucide-react';
+import { authenticatedFetch } from '@/lib/client-api';
+import { isEthereumAddress } from '@/lib/ethereum-address';
+import { NOT_CONFIGURED, type AssistantAnswer, type EvidenceContext, type EvidenceFact } from '@/lib/ai-contract';
 
-const prompts = [
-  'Summarize this wallet activity.',
-  'Explain the Money Fingerprint.',
-  'What risk indicators were observed?',
-  'Show the major fund movements.',
-  'Which transactions require review?',
-  'Explain the available evidence limits.',
-];
-
-const responseTypes = [
-  { label: 'Verified evidence', detail: 'A returned transaction, value, timestamp, address, or case record.', tone: 'cyan' },
-  { label: 'Observed pattern', detail: 'A calculation based only on the currently returned evidence.', tone: 'violet' },
-  { label: 'Risk indicator', detail: 'A behavioral signal that warrants review; it is not proof of fraud.', tone: 'amber' },
-  { label: 'Unknown', detail: 'Ownership, intent, service identity, and any data not returned by the source.', tone: 'slate' },
-];
+const prompts = ['Summarize wallet activity', 'Explain Money Fingerprint', 'Explain risk signals', 'Check fund splitting', 'Show important counterparties', 'Summarize case connections', 'What should I investigate next?'];
+type Message = { question: string; answer?: AssistantAnswer; error?: string };
+type Loaded = { snapshotId: string; evidence: EvidenceContext };
 
 export default function AIAssistant() {
-  return (
-    <div className="mx-auto max-w-7xl space-y-6 pb-10">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Evidence-grounded analyst copilot</p>
-          <h1 className="page-title">CryptoFraud Intelligence Assistant</h1>
-          <p className="page-description">A controlled interpretation layer for verified blockchain evidence. It does not invent wallet ownership, exchange identities, transaction paths, or case relationships.</p>
+  const [kind, setKind] = useState<'wallet' | 'case'>('wallet');
+  const [value, setValue] = useState('');
+  const [cases, setCases] = useState<{ id: string; title: string }[]>([]);
+  const [caseError, setCaseError] = useState('');
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [question, setQuestion] = useState('');
+  const [busy, setBusy] = useState<'load' | 'ask' | null>(null);
+  const [error, setError] = useState('');
+  const end = useRef<HTMLDivElement>(null);
+  const lock = useRef(false);
+  useEffect(() => {
+    let active = true;
+    authenticatedFetch('/api/ai').then(response => response.json()).then(data => { if (active) setConfigured(data.configured === true); }).catch(() => { if (active) setError('Unable to check AI availability. Reload this page or load evidence to retry.'); });
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('address')) setValue(params.get('address')!);
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (kind !== 'case') return;
+    let active = true;
+    setCaseError('');
+    authenticatedFetch('/api/cases').then(response => response.json()).then(data => { if (active) setCases(Array.isArray(data.cases) ? data.cases : []); }).catch(() => { if (active) setCaseError('Unable to load your cases. Switch context and retry.'); });
+    return () => { active = false; };
+  }, [kind]);
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [messages, busy]);
+  function clearContext() { setLoaded(null); setMessages([]); setError(''); }
+  async function load(event: FormEvent) {
+    event.preventDefault();
+    if (lock.current) return;
+    clearContext();
+    if (kind === 'wallet' && !isEthereumAddress(value.trim())) { setError('Enter a valid Ethereum wallet address.'); return; }
+    if (!value.trim()) { setError('Select an investigation context.'); return; }
+    lock.current = true; setBusy('load');
+    try {
+      const response = await authenticatedFetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'load', kind, value }) });
+      const data = await response.json(); setLoaded(data); setConfigured(data.configured === true);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Unable to load evidence.'); }
+    finally { lock.current = false; setBusy(null); }
+  }
+  async function ask(text: string) {
+    if (lock.current || !loaded || !text.trim()) return;
+    if (!configured) { setError(NOT_CONFIGURED); return; }
+    lock.current = true; setBusy('ask'); setError(''); setQuestion('');
+    setMessages(previous => [...previous, { question: text }]);
+    try {
+      const response = await authenticatedFetch('/api/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ask', snapshotId: loaded.snapshotId, question: text }) });
+      const data = await response.json();
+      setMessages(previous => previous.map((message, index) => index === previous.length - 1 ? { ...message, answer: data.answer } : message));
+    } catch (failure) {
+      const message = failure instanceof Error ? failure.message : 'Unable to generate a grounded response.';
+      setMessages(previous => previous.map((entry, index) => index === previous.length - 1 ? { ...entry, error: message } : entry));
+      setQuestion(text);
+    } finally { lock.current = false; setBusy(null); }
+  }
+  return <div className="mx-auto max-w-7xl space-y-6 pb-10">
+    <header className="page-header"><div><p className="eyebrow">Evidence first ? AI explanation second</p><h1 className="page-title">CHAINTRACE AI</h1><p className="page-description">Evidence-Grounded Investigation Assistant</p></div><span className="status-chip"><ShieldCheck size={16} />{loaded ? 'Evidence loaded' : 'Select evidence'}</span></header>
+    <p className="text-sm leading-6 text-slate-400">AI explanations are generated from available investigation evidence and should be independently reviewed. The AI selects relevant evidence and review steps; factual wording and transaction references are controlled by CHAINTRACE.</p>
+    {configured === false && <p role="status" className="rounded-xl border border-amber-400/25 bg-amber-400/5 p-4 text-sm text-amber-100">{NOT_CONFIGURED}</p>}
+    <div className="grid min-w-0 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+      <aside className="min-w-0 space-y-5">
+        <form onSubmit={load} className="panel space-y-4 p-5"><h2 className="text-lg font-semibold text-white">Investigation context</h2>
+          <label className="block text-sm text-slate-300">Evidence type<select disabled={!!busy} className="field mt-2 w-full" value={kind} onChange={event => { setKind(event.target.value as typeof kind); setValue(''); clearContext(); }}><option value="wallet">Ethereum wallet</option><option value="case">My case</option></select></label>
+          <label className="block text-sm text-slate-300">{kind === 'wallet' ? 'Wallet address' : 'Owned case'}{kind === 'wallet' ? <input className="field mt-2 w-full font-mono text-xs" value={value} disabled={!!busy} onChange={event => { setValue(event.target.value); clearContext(); }} placeholder="0x?" autoComplete="off" spellCheck={false} /> : <select className="field mt-2 w-full" disabled={!!busy} value={value} onChange={event => { setValue(event.target.value); clearContext(); }}><option value="">Select your case</option>{cases.map(record => <option key={record.id} value={record.id}>{record.title}</option>)}</select>}</label>
+          {caseError && kind === 'case' && <p role="alert" className="text-xs text-red-200">{caseError}</p>}
+          <button className="button-primary w-full" disabled={!!busy}>{busy === 'load' && <Loader2 size={16} className="animate-spin" />}{busy === 'load' ? 'Retrieving evidence?' : 'Load / refresh evidence'}</button>
+          <p className="text-xs leading-5 text-slate-500">Case analysis may take several minutes. Evidence expires after ten minutes; refresh to retrieve newer activity. Refreshing clears this conversation.</p>
+        </form>
+        <section className="panel p-5"><h2 className="mb-3 text-sm font-semibold text-white">Quick investigation questions</h2><div className="space-y-2">{prompts.map(prompt => <button key={prompt} disabled={!!busy} onClick={() => setQuestion(prompt)} className="w-full rounded-lg border border-slate-800 px-3 py-2 text-left text-xs text-slate-300 transition hover:border-cyan-400/40">{prompt}</button>)}</div></section>
+        <div className="flex flex-wrap gap-3 text-xs text-cyan-200"><Link href="/blockchain-intelligence">Blockchain Intelligence</Link><Link href="/cases">Cases</Link></div>
+      </aside>
+      <section className="panel flex min-w-0 flex-col overflow-hidden">
+        <div className="border-b border-slate-800 p-5"><div className="flex items-center gap-2 text-cyan-200"><Bot size={20} /><h2 className="font-semibold">Investigation conversation</h2></div><p className="mt-2 break-all text-xs text-slate-400">{loaded ? loaded.evidence.label : 'Load a wallet or a case before asking a question.'}</p></div>
+        <div role="log" aria-label="Investigation conversation" aria-live="polite" className="min-h-[260px] max-h-[65vh] flex-1 space-y-6 overflow-y-auto p-4 sm:p-6">
+          {!messages.length && <p className="text-sm leading-6 text-slate-500">Ask about observed fund movements, counterparties, analytical signals or case connections. Ownership, intent and service attribution require independent evidence. Questions use the selected snapshot; earlier messages are not sent as evidence.</p>}
+          {messages.map((message, index) => <article key={index} className="space-y-3"><div className="ml-4 rounded-xl border border-slate-700 bg-slate-800/50 p-4"><p className="mb-2 text-xs text-slate-500">Investigator</p><p className="whitespace-pre-wrap break-words text-sm text-slate-200">{message.question}</p></div>{message.error && <p role="alert" className="rounded-xl border border-red-400/20 p-4 text-sm text-red-200">{message.error}</p>}{message.answer && <div className="rounded-xl border border-cyan-400/20 bg-cyan-400/[0.025] p-4"><p className="mb-3 text-xs uppercase tracking-wide text-cyan-200">CHAINTRACE AI ? evidence selection</p><p className="text-sm leading-6 text-slate-200">{message.answer.summary}</p>{(['Observed Evidence', 'Analytical Signals'] as const).map(section => { const facts = message.answer!.facts.filter(fact => fact.section === section); return facts.length ? <div key={section} className="mt-4"><h3 className="mb-2 text-sm font-semibold text-white">{section}</h3><div className="space-y-3">{facts.map(fact => <Fact key={fact.id} fact={fact} />)}</div></div> : null; })}{message.answer.steps.length > 0 && <div className="mt-4"><h3 className="text-sm font-semibold text-white">Suggested Investigation Steps</h3><ul className="mt-2 list-disc space-y-2 pl-5 text-xs leading-5 text-slate-300">{message.answer.steps.map(step => <li key={step}>{step}</li>)}</ul></div>}<details className="mt-4 text-xs leading-5 text-slate-400"><summary className="cursor-pointer text-amber-100">Limitations and sources</summary><p className="mt-2">{message.answer.source} ? {message.answer.generatedAt}</p><ul className="mt-2 list-disc space-y-2 pl-5">{message.answer.limitations.map(note => <li key={note}>{note}</li>)}</ul></details><p className="mt-4 text-xs text-amber-100">Analytical signals are not proof of fraud, ownership or intent.</p></div>}</article>)}
+          {busy && <p role="status" className="flex items-center gap-2 text-sm text-cyan-200"><Loader2 size={16} className="animate-spin" />{busy === 'load' ? 'Retrieving authorized evidence?' : 'Selecting supporting evidence?'}</p>}<div ref={end} />
         </div>
-        <div className="status-chip border-slate-700 bg-slate-900/75 text-slate-300"><CircleDashed size={13} className="text-slate-500" />NO ACTIVE EVIDENCE CONTEXT</div>
-      </header>
-
-      <section className="command-panel p-5 sm:p-7">
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-center">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="cf-brand-mark flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-400/25 text-cyan-200"><Bot size={24} /></span>
-              <div><p className="eyebrow">Analyst copilot</p><h2 className="mt-1 text-xl font-semibold text-white">Start from a verified wallet investigation</h2></div>
-            </div>
-            <p className="mt-5 max-w-2xl text-sm leading-6 text-slate-300">The assistant becomes available inside Wallet Investigation after the platform receives data from its configured blockchain source. Responses are generated from that loaded dataset only and stay explicitly evidence-bound.</p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              <Link href="/investigate" className="button-primary"><Sparkles size={17} />Open investigation workspace</Link>
-              <Link href="/blockchain-intelligence" className="button-secondary"><FileSearch size={17} />Look up evidence</Link>
-            </div>
-          </div>
-          <aside className="rounded-xl border border-cyan-400/15 bg-slate-950/45 p-5">
-            <p className="meta-label">Evidence context</p>
-            <div className="mt-4 space-y-4">
-              <ContextRow label="Wallet analysis" value="Not loaded" />
-              <ContextRow label="Transaction references" value="Unavailable" />
-              <ContextRow label="Analysis timestamp" value="Unavailable" />
-            </div>
-            <p className="mt-5 border-t border-slate-800 pt-4 text-xs leading-5 text-slate-500">The assistant will show source, network, and verification time once real data is loaded.</p>
-          </aside>
-        </div>
-      </section>
-
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="panel p-5 sm:p-6">
-          <div className="flex items-center gap-2 text-cyan-300"><MessageSquareText size={18} /><p className="eyebrow">Suggested questions</p></div>
-          <h2 className="mt-2 text-lg font-semibold text-white">Investigation prompts</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">These prompts are available after a wallet is analyzed. They remain intentionally unavailable here until evidence context exists.</p>
-          <div className="mt-5 grid gap-2">
-            {prompts.map((prompt, index) => <div key={prompt} className="group flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/35 px-3.5 py-3"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-cyan-400/15 bg-cyan-400/[0.045] font-mono text-[10px] text-cyan-200">0{index + 1}</span><p className="text-sm text-slate-300">{prompt}</p><ArrowRight size={15} className="ml-auto text-slate-600 transition group-hover:translate-x-0.5 group-hover:text-cyan-200" /></div>)}
-          </div>
-        </section>
-
-        <section className="panel p-5 sm:p-6">
-          <div className="flex items-center gap-2 text-cyan-300"><BrainCircuit size={18} /><p className="eyebrow">Response protocol</p></div>
-          <h2 className="mt-2 text-lg font-semibold text-white">Clear evidence language</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-400">Each response must separate what was returned, what was observed, and what cannot be concluded.</p>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {responseTypes.map((item) => <ResponseType key={item.label} {...item} />)}
-          </div>
-          <div className="mt-5 rounded-xl border border-amber-400/20 bg-amber-400/[0.055] p-4 text-xs leading-5 text-amber-100"><ShieldAlert size={15} className="mr-2 inline-block" />When evidence is insufficient, the required response is: “Insufficient verified blockchain evidence to determine this.”</div>
-        </section>
-      </div>
-
-      <section className="panel overflow-hidden">
-        <div className="flex flex-col gap-3 border-b border-slate-800/90 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="eyebrow">Evidence references</p><h2 className="mt-1 text-lg font-semibold text-white">Analysis traceability</h2></div>
-          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><Clock3 size={14} />Awaiting a verified analysis</span>
-        </div>
-        <div className="grid gap-px bg-slate-800 md:grid-cols-3">
-          <ReferenceTile icon={Fingerprint} label="Wallet context" value="No analyzed wallet" detail="Load a wallet from the investigation workspace." />
-          <ReferenceTile icon={FileSearch} label="Transactions" value="No returned references" detail="Only returned transaction hashes can be cited." />
-          <ReferenceTile icon={ShieldAlert} label="Risk evidence" value="Not assessed" detail="Signals appear only after evidence-backed analysis." />
-        </div>
+        <form onSubmit={event => { event.preventDefault(); void ask(question); }} className="space-y-3 border-t border-slate-800 p-4"><label htmlFor="ai-question" className="text-sm text-slate-300">Investigation question</label><textarea id="ai-question" className="field w-full resize-y" rows={3} maxLength={2000} value={question} disabled={!!busy} onChange={event => setQuestion(event.target.value)} placeholder="What does the retrieved evidence show?" /><div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs text-slate-500">{question.length}/2000 ? Do not enter secrets or unrelated personal data.</span><button className="button-primary" disabled={!!busy || !loaded || !configured || !question.trim()}><Send size={16} />Send</button></div><p className="text-xs leading-5 text-slate-500">Sending shares your question and relevant evidence with the configured OpenAI provider. Case descriptions, account credentials and unrelated records are excluded.</p></form>
       </section>
     </div>
-  );
+    {error && <p role="alert" className="rounded-xl border border-red-400/20 p-4 text-sm text-red-200">{error}</p>}
+    {loaded && <section className="panel p-5"><h2 className="text-lg font-semibold text-white">Evidence / sources</h2><p className="mt-2 break-words text-xs text-slate-400">{loaded.evidence.source} ? Retrieved {loaded.evidence.generatedAt}</p><p className="mt-2 text-xs text-slate-400">Deterministic CHAINTRACE evidence. These statements are available even when AI is unconfigured.</p><details className="mt-4"><summary className="cursor-pointer text-sm text-cyan-200">Inspect {loaded.evidence.facts.length} evidence statements and coverage</summary><ul className="my-4 list-disc space-y-2 pl-5 text-xs text-amber-100">{loaded.evidence.limitations.map(note => <li key={note}>{note}</li>)}</ul><div className="grid gap-4 md:grid-cols-2">{loaded.evidence.facts.map(fact => <Fact key={fact.id} fact={fact} />)}</div></details></section>}
+  </div>;
 }
-
-function ContextRow({ label, value }: { label: string; value: string }) {
-  return <div className="flex items-start justify-between gap-4"><span className="text-xs text-slate-500">{label}</span><span className="text-right font-mono text-xs text-slate-300">{value}</span></div>;
-}
-
-function ResponseType({ label, detail, tone }: { label: string; detail: string; tone: string }) {
-  const toneClass = tone === 'cyan' ? 'border-cyan-400/18 bg-cyan-400/[0.045] text-cyan-200' : tone === 'violet' ? 'border-violet-400/18 bg-violet-400/[0.045] text-violet-200' : tone === 'amber' ? 'border-amber-400/18 bg-amber-400/[0.045] text-amber-200' : 'border-slate-700 bg-slate-950/40 text-slate-300';
-  return <article className={`rounded-xl border p-4 ${toneClass}`}><p className="text-[10px] font-semibold uppercase tracking-[0.15em]">{label}</p><p className="mt-2 text-xs leading-5 text-slate-400">{detail}</p></article>;
-}
-
-function ReferenceTile({ icon: Icon, label, value, detail }: { icon: typeof Fingerprint; label: string; value: string; detail: string }) {
-  return <article className="bg-slate-950/35 p-5"><Icon size={18} className="text-cyan-300" /><p className="mt-4 meta-label">{label}</p><p className="mt-2 text-sm font-medium text-slate-200">{value}</p><p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p></article>;
+function Fact({ fact }: { fact: EvidenceFact }) {
+  return <div className="min-w-0 rounded-lg border border-slate-800 p-3"><p className="break-words text-xs leading-6 text-slate-300"><span className="mr-2 font-mono text-cyan-300">[{fact.id}]</span>{fact.text}</p>{fact.hashes.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{fact.hashes.map(hash => <a key={hash} href={'https://etherscan.io/tx/' + hash} title={hash} target="_blank" rel="noreferrer" className="font-mono text-xs text-cyan-200">{hash.slice(0, 10)}?{hash.slice(-6)} ?</a>)}</div>}</div>;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { VictimReportSummary } from '@/components/victim-report-summary';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowRight, BellRing, Clock, Database, FolderKanban, Loader2, Network, Radar, RefreshCw, Search, ShieldCheck } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/client-api';
@@ -21,6 +22,7 @@ function statusClass(status: CaseRecord['status']) {
 export default function Dashboard() {
   const [cases, setCases] = useState<CaseRecord[]>([]);
   const [alerts, setAlerts] = useState<AlertRecord[]>([]);
+  const [alertOverview, setAlertOverview] = useState<{ total: number; needsReview: number; critical: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
@@ -29,12 +31,14 @@ export default function Dashboard() {
     setLoading(true);
     setError('');
     try {
-      const [casesResponse, alertsResponse] = await Promise.all([authenticatedFetch('/api/cases'), authenticatedFetch('/api/alerts')]);
+      const [casesResponse, alertsResponse] = await Promise.all([authenticatedFetch('/api/cases'), authenticatedFetch('/api/alerts?overview=1')]);
       const [casePayload, alertPayload] = await Promise.all([casesResponse.json(), alertsResponse.json()]);
       if (!casesResponse.ok) throw new Error(typeof casePayload?.error === 'string' ? casePayload.error : 'Unable to load cases.');
       if (!alertsResponse.ok) throw new Error(typeof alertPayload?.error === 'string' ? alertPayload.error : 'Unable to load alerts.');
       setCases(Array.isArray(casePayload?.cases) ? casePayload.cases : []);
       setAlerts(Array.isArray(alertPayload?.alerts) ? alertPayload.alerts : []);
+      if (typeof alertPayload?.summary?.critical !== 'number' || typeof alertPayload?.summary?.needsReview !== 'number' || typeof alertPayload?.summary?.total !== 'number') throw new Error('Alert overview is unavailable.');
+      setAlertOverview(alertPayload.summary);
       setVerifiedAt(new Date().toISOString());
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Unable to load investigation workspace.');
@@ -48,9 +52,9 @@ export default function Dashboard() {
   const stats = useMemo(() => ({
     active: cases.filter((item) => item.status === 'open' || item.status === 'investigating').length,
     investigating: cases.filter((item) => item.status === 'investigating').length,
-    critical: alerts.filter((item) => item.severity === 'critical' && item.status !== 'closed').length,
+    critical: alertOverview?.critical ?? 0,
     wallets: new Set(cases.flatMap((item) => item.wallets.map((wallet) => wallet.address.toLowerCase()))).size,
-  }), [alerts, cases]);
+  }), [alerts, cases, alertOverview]);
 
   const timeline = useMemo<TimelineEvent[]>(() => [
     ...cases.map((item) => ({ id: `case-${item.id}`, kind: 'case' as const, title: item.title, detail: `${item.case_code} · ${item.status.replace('-', ' ')}`, at: item.updated_at, href: `/cases/${item.id}`, tone: 'cyan' as const })),
@@ -80,12 +84,14 @@ export default function Dashboard() {
       <Metric label="Case wallets" value={stats.wallets} detail="Reported across your private cases" icon={ShieldCheck} tone="emerald" loading={loading || Boolean(error)} />
     </section>
 
+    <VictimReportSummary />
+
     <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
       <section className="panel overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-slate-800/90 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="eyebrow">Case activity</p><h2 className="mt-1 text-lg font-semibold text-white">Recent investigations</h2></div><Link href="/cases" className="inline-flex items-center gap-1 text-sm font-medium text-cyan-200 hover:text-cyan-100">View case register<ArrowRight size={16} /></Link>
         </div>
-        {loading ? <div className="flex h-64 items-center justify-center text-sm text-slate-400"><Loader2 size={17} className="mr-2 animate-spin" />Loading authorized case data…</div> : cases.length === 0 ? <div className="empty-state m-5"><FolderKanban size={24} className="mx-auto text-cyan-300" /><p className="mt-3 font-medium text-slate-200">No private cases yet.</p><p className="mx-auto mt-1 max-w-md text-xs leading-5">Create a case or submit a verified wallet report to begin an investigation.</p></div> : <div className="divide-y divide-slate-800/90">{cases.slice(0, 5).map((caseRecord) => <Link key={caseRecord.id} href={`/cases/${caseRecord.id}`} className="group flex flex-col gap-3 px-5 py-4 transition hover:bg-cyan-400/[0.035] sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-cyan-200">{caseRecord.case_code}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusClass(caseRecord.status)}`}>{caseRecord.status}</span></div><p className="mt-2 truncate text-sm font-medium text-white">{caseRecord.title}</p><p className="mt-1 text-xs text-slate-500">Updated {formatDate(caseRecord.updated_at)} UTC · {caseRecord.wallets.length} reported wallet{caseRecord.wallets.length === 1 ? '' : 's'}</p></div><ArrowRight size={18} className="shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-cyan-200" /></Link>)}</div>}
+        {loading ? <div className="flex h-64 items-center justify-center text-sm text-slate-400"><Loader2 size={17} className="mr-2 animate-spin" />Loading authorized case data…</div> : cases.length === 0 ? <div className="empty-state m-5"><FolderKanban size={24} className="mx-auto text-cyan-300" /><p className="mt-3 font-medium text-slate-200">No private cases yet.</p><p className="mx-auto mt-1 max-w-md text-xs leading-5">Create a case or submit a wallet allegation report to begin an investigation.</p></div> : <div className="divide-y divide-slate-800/90">{cases.slice(0, 5).map((caseRecord) => <Link key={caseRecord.id} href={`/cases/${caseRecord.id}`} className="group flex flex-col gap-3 px-5 py-4 transition hover:bg-cyan-400/[0.035] sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="font-mono text-xs text-cyan-200">{caseRecord.case_code}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${statusClass(caseRecord.status)}`}>{caseRecord.status}</span></div><p className="mt-2 truncate text-sm font-medium text-white">{caseRecord.title}</p><p className="mt-1 text-xs text-slate-500">Updated {formatDate(caseRecord.updated_at)} UTC · {caseRecord.wallets.length} reported wallet{caseRecord.wallets.length === 1 ? '' : 's'}</p></div><ArrowRight size={18} className="shrink-0 text-slate-500 transition group-hover:translate-x-0.5 group-hover:text-cyan-200" /></Link>)}</div>}
       </section>
 
       <section className="panel p-5">
@@ -100,7 +106,7 @@ export default function Dashboard() {
         <div><p className="eyebrow">Network activity</p><h2 className="mt-1 text-lg font-semibold text-white">Operational coverage snapshot</h2></div>
         <p className="text-xs text-slate-500">Derived from your private case and monitoring records</p>
       </div>
-      {loading ? <div className="flex h-36 items-center justify-center text-sm text-slate-400"><Loader2 size={17} className="mr-2 animate-spin" />Retrieving workspace coverage…</div> : stats.active + alerts.length + stats.wallets === 0 ? <div className="empty-state m-5"><Network size={24} className="mx-auto text-cyan-300" /><p className="mt-3 font-medium text-slate-200">No verified network activity available.</p><p className="mx-auto mt-1 max-w-md text-xs leading-5">Create a case, analyze a reported wallet, or enable monitoring to begin building an operational view.</p></div> : <div className="grid gap-px bg-slate-800 md:grid-cols-3"><CoverageMeter label="Active case coverage" value={stats.active} detail="Open or investigating private cases" max={Math.max(cases.length, 1)} tone="cyan" /><CoverageMeter label="Alert review queue" value={alerts.filter((item) => item.status !== 'closed').length} detail="Unresolved monitoring alerts" max={Math.max(alerts.length, 1)} tone="amber" /><CoverageMeter label="Case wallet coverage" value={stats.wallets} detail="Reported wallets across active records" max={Math.max(stats.wallets, 1)} tone="violet" /></div>}
+      {loading ? <div className="flex h-36 items-center justify-center text-sm text-slate-400"><Loader2 size={17} className="mr-2 animate-spin" />Retrieving workspace coverage…</div> : stats.active + alerts.length + stats.wallets === 0 ? <div className="empty-state m-5"><Network size={24} className="mx-auto text-cyan-300" /><p className="mt-3 font-medium text-slate-200">No verified network activity available.</p><p className="mx-auto mt-1 max-w-md text-xs leading-5">Create a case, analyze a reported wallet, or enable monitoring to begin building an operational view.</p></div> : <div className="grid gap-px bg-slate-800 md:grid-cols-3"><CoverageMeter label="Active case coverage" value={stats.active} detail="Open or investigating private cases" max={Math.max(cases.length, 1)} tone="cyan" /><CoverageMeter label="Alert review queue" value={alertOverview?.needsReview ?? 0} detail="Unresolved stored monitoring alerts" max={Math.max(alertOverview?.total ?? 0, 1)} tone="amber" /><CoverageMeter label="Case wallet coverage" value={stats.wallets} detail="Reported wallets across active records" max={Math.max(stats.wallets, 1)} tone="violet" /></div>}
     </section>
 
     <section className="panel overflow-hidden">

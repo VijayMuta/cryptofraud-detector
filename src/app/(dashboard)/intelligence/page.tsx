@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { BlockchainWorkspace } from '@/components/blockchain-workspace';
+import { isEthereumAddress } from '@/lib/ethereum-address';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle,
@@ -56,7 +58,7 @@ function isWalletTransaction(value: unknown): value is WalletTransaction {
     && typeof value.hash === 'string'
     && typeof value.from === 'string'
     && (typeof value.to === 'string' || value.to === null)
-    && typeof value.value === 'string'
+    && typeof value.value === 'string' && /^\d+$/.test(value.value)
     && typeof value.blockNumber === 'string'
     && (value.timestamp === null || typeof value.timestamp === 'string')
     && (value.status === 'success' || value.status === 'failed' || value.status === 'unknown');
@@ -65,7 +67,7 @@ function isWalletTransaction(value: unknown): value is WalletTransaction {
 function parseAddressResult(value: unknown): AddressResult | null {
   if (!isRecord(value)
     || typeof value.address !== 'string'
-    || typeof value.balanceWei !== 'string'
+    || typeof value.balanceWei !== 'string' || !/^\d+$/.test(value.balanceWei)
     || typeof value.transactionCount !== 'number'
     || typeof value.dataSource !== 'string'
     || typeof value.network !== 'string'
@@ -133,12 +135,13 @@ export default function BlockchainIntelligence() {
 
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (loading) return;
     const value = query.trim();
     setError('');
     setAddressResult(null);
     setTransactionResult(null);
 
-    if (!ADDRESS_PATTERN.test(value) && !HASH_PATTERN.test(value)) {
+    if (!isEthereumAddress(value) && !HASH_PATTERN.test(value)) {
       setError('Enter a valid Ethereum wallet address or transaction hash beginning with 0x.');
       return;
     }
@@ -191,10 +194,11 @@ export default function BlockchainIntelligence() {
         {error && <p role="alert" className="mt-4 flex gap-2 rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-200"><AlertCircle size={17} className="shrink-0" />{error}</p>}
       </form>
 
+      {loading && <p role="status" className="text-sm text-cyan-200">Retrieving Ethereum data and verifying receipts. Provider rate limits may delay this request.</p>}
       {addressResult && analysis && <>
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="Wallet balance" value={formatWei(addressResult.balanceWei)} detail="Verified Ethereum balance" />
-          <Metric label="Transaction count" value={String(addressResult.transactionCount)} detail="Ethereum account nonce" />
+          <Metric label="Account nonce" value={String(addressResult.transactionCount)} detail="Ethereum account nonce" />
           <Metric label="Retrieved transfers" value={String(addressResult.transactions.length)} detail="Normal ETH transfer evidence" />
           <Metric label="Direct counterparties" value={String(analysis.counterparties.length)} detail="Successful retrieved transfers" />
         </section>
@@ -203,8 +207,9 @@ export default function BlockchainIntelligence() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex items-center gap-2 text-cyan-300"><Waypoints size={18} /><p className="text-xs font-medium uppercase tracking-wide">Direct fund-flow evidence</p></div><h2 className="mt-2 text-lg font-semibold text-white">Connected address discovery</h2><p className="mt-1 text-sm text-slate-400">Only direct counterparties from retrieved successful normal ETH transfers are shown.</p></div><Link href={`/investigate?address=${encodeURIComponent(addressResult.address)}`} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-cyan-200 hover:text-cyan-100">Full investigation <ArrowRight size={16} /></Link></div>
             {analysis.counterparties.length === 0 ? <Empty message="No direct counterparties were found in the retrieved successful transfers." /> : <div className="mt-5 space-y-2">{analysis.counterparties.slice(0, 8).map((counterparty) => <a key={counterparty.address} href={`https://etherscan.io/address/${counterparty.address}`} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/45 p-3 transition hover:border-cyan-400/30"><div className="min-w-0"><p className="truncate font-mono text-sm text-cyan-200" title={counterparty.address}>{abbreviate(counterparty.address)}</p><p className="mt-1 text-xs text-slate-500">{counterparty.incomingCount + counterparty.outgoingCount} observed direct interaction{counterparty.incomingCount + counterparty.outgoingCount === 1 ? '' : 's'}</p></div><ExternalLink size={16} className="shrink-0 text-slate-500" /></a>)}</div>}
           </div>
-          <aside className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.045] p-5 sm:p-6"><div className="flex items-center gap-2 text-violet-200"><GitBranch size={18} /><p className="text-xs font-medium uppercase tracking-wide">Observed behavior</p></div><h2 className="mt-2 text-lg font-semibold text-white">Money Fingerprint preview</h2><dl className="mt-5 space-y-3 text-sm"><Row label="Incoming funds" value={formatEth(analysis.totalReceivedWei)} /><Row label="Outgoing funds" value={formatEth(analysis.totalSentWei)} /><Row label="Largest transfer" value={analysis.largestTransaction ? formatEth(analysis.largestTransaction.valueWei) : 'Unavailable'} /><Row label="Transfer frequency" value={analysis.frequency.transactionsPerDay === null ? 'Unavailable' : `${analysis.frequency.transactionsPerDay.toFixed(2)} / day`} /></dl><p className="mt-5 text-xs leading-5 text-violet-100">Money Fingerprint summarizes observable transaction behavior. It does not by itself establish fraud.</p></aside>
+          <aside className="rounded-2xl border border-violet-400/20 bg-violet-400/[0.045] p-5 sm:p-6"><div className="flex items-center gap-2 text-violet-200"><GitBranch size={18} /><p className="text-xs font-medium uppercase tracking-wide">Observed behavior</p></div><h2 className="mt-2 text-lg font-semibold text-white">Money Fingerprint preview</h2><dl className="mt-5 space-y-3 text-sm"><Row label="Incoming funds" value={analysis.successfulTransactionCount ? formatEth(analysis.totalReceivedWei) : 'Unavailable'} /><Row label="Outgoing funds" value={analysis.successfulTransactionCount ? formatEth(analysis.totalSentWei) : 'Unavailable'} /><Row label="Largest transfer" value={analysis.largestTransaction ? formatEth(analysis.largestTransaction.valueWei) : 'Unavailable'} /><Row label="Transfer frequency" value={analysis.frequency.transactionsPerDay === null ? 'Unavailable' : `${analysis.frequency.transactionsPerDay.toFixed(2)} / day`} /></dl><p className="mt-5 text-xs leading-5 text-violet-100">Money Fingerprint summarizes observable transaction behavior. It does not by itself establish fraud.</p></aside>
         </section>
+        <BlockchainWorkspace key={addressResult.address} address={addressResult.address} transactions={addressResult.transactions} analysis={analysis} />
         <EvidenceSource source={addressResult.dataSource} network={addressResult.network} verifiedAt={addressResult.verifiedAt} />
       </>}
 

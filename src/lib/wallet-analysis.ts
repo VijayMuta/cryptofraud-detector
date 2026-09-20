@@ -76,7 +76,7 @@ function timestampMs(timestamp: string | null) {
   return Number.isNaN(value) ? null : value;
 }
 
-function directionFor(transaction: WalletTransaction, address: string): TransactionDirection {
+export function directionFor(transaction: WalletTransaction, address: string): TransactionDirection {
   const normalizedAddress = address.toLowerCase();
   const from = transaction.from.toLowerCase();
   const to = transaction.to?.toLowerCase();

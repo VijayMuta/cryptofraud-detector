@@ -1,205 +1,56 @@
 'use client';
-
+import Link from 'next/link';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { WalletAddress } from '@/components/wallet-address';
-
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, BellRing, CheckCircle2, ExternalLink, Filter, Loader2, RefreshCw, Search, ShieldAlert } from 'lucide-react';
+import { AlertEvidence } from '@/components/alert-evidence';
 import { authenticatedFetch } from '@/lib/client-api';
+import { ALERT_STATUSES, ALERT_TYPES, alertInvestigationUrl, type AlertRow, type AlertSummary, type AlertStatus } from '@/lib/alerts';
 
-type AlertStatus = 'new' | 'reviewing' | 'closed';
-type MonitoringAlert = {
-  id: string;
-  alert_type: 'fund_splitting' | 'unusual_movement';
-  severity: 'high' | 'critical';
-  title: string;
-  description: string;
-  source_transaction_hash: string;
-  risk_score: number | null;
-  status: AlertStatus;
-  created_at: string;
-  wallet: string | null;
-};
-
-function abbreviate(value: string, start = 8, end = 6) {
-  return value.length > start + end ? value.slice(0, start) + '...' + value.slice(-end) : value;
-}
-
-function formatTimestamp(value: string) {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime())
-    ? 'Unavailable'
-    : new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(date);
-}
-
-function displayStatus(status: AlertStatus) {
-  if (status === 'reviewing') return 'Under Review';
-  if (status === 'closed') return 'Resolved';
-  return 'New';
-}
-
-function statusClass(status: AlertStatus) {
-  if (status === 'new') return 'border-cyan-400/25 bg-cyan-400/10 text-cyan-200';
-  if (status === 'reviewing') return 'border-amber-400/25 bg-amber-400/10 text-amber-200';
-  return 'border-slate-700 bg-slate-800 text-slate-300';
-}
-
-function isAlert(value: unknown): value is MonitoringAlert {
-  if (typeof value !== 'object' || value === null) return false;
-  const alert = value as Record<string, unknown>;
-  return typeof alert.id === 'string'
-    && typeof alert.title === 'string'
-    && typeof alert.description === 'string'
-    && typeof alert.source_transaction_hash === 'string'
-    && (alert.severity === 'critical' || alert.severity === 'high')
-    && (alert.status === 'new' || alert.status === 'reviewing' || alert.status === 'closed');
-}
-
+function detectedAt(value: string | null) { return value ? new Date(value).toLocaleString('en-GB', { timeZone: 'UTC' }) + ' UTC' : 'Unavailable'; }
 export default function Alerts() {
-  const [alerts, setAlerts] = useState<MonitoringAlert[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [updatingId, setUpdatingId] = useState('');
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
-  const [severity, setSeverity] = useState<'all' | MonitoringAlert['severity']>('all');
-  const [status, setStatus] = useState<'all' | AlertStatus>('all');
-  const [query, setQuery] = useState('');
-
-  const loadAlerts = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const response = await authenticatedFetch('/api/alerts');
-      const payload: unknown = await response.json();
-      if (!response.ok) {
-        const reason = typeof payload === 'object' && payload !== null && typeof (payload as Record<string, unknown>).error === 'string'
-          ? (payload as Record<string, unknown>).error as string
-          : 'Unable to load alerts.';
-        throw new Error(reason);
-      }
-      const rawAlerts = typeof payload === 'object' && payload !== null
-        ? (payload as Record<string, unknown>).alerts
-        : null;
-      const rows = Array.isArray(rawAlerts) ? rawAlerts.filter(isAlert) : [];
-      setAlerts(rows);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load alerts.');
-    } finally {
-      setLoading(false);
-    }
+  const [alerts, setAlerts] = useState<AlertRow[]>([]), [summary, setSummary] = useState<AlertSummary | null>(null);
+  const [loading, setLoading] = useState(true), [error, setError] = useState(''), [summaryError, setSummaryError] = useState(''), [message, setMessage] = useState('');
+  const [page, setPage] = useState(1), [total, setTotal] = useState(0), [filters, setFilters] = useState(''), [refresh, setRefresh] = useState(0);
+  const [selected, setSelected] = useState(''), [updating, setUpdating] = useState(''), [actionError, setActionError] = useState('');
+  const lock = useRef(false);
+  const refreshSummary = useCallback(async () => {
+    setSummaryError('');
+    try { const response = await authenticatedFetch('/api/alerts?summary=1'); const data = await response.json(); if (!data.summary || typeof data.summary.total !== 'number') throw new Error('Invalid overview response.'); setSummary(data.summary); }
+    catch { setSummary(null); setSummaryError('Alert overview unavailable. Retry refresh; no zero counts have been inferred.'); }
   }, []);
-
-  useEffect(() => { void loadAlerts(); }, [loadAlerts]);
-
-  const visibleAlerts = useMemo(() => {
-    const normalizedQuery = query.trim().toLowerCase();
-    return alerts.filter((alert) => (severity === 'all' || alert.severity === severity) && (status === 'all' || alert.status === status) && (!normalizedQuery || [alert.title, alert.description, alert.wallet || '', alert.source_transaction_hash].join(' ').toLowerCase().includes(normalizedQuery)));
-  }, [alerts, query, severity, status]);
-  const counts = useMemo(() => ({
-    critical: alerts.filter((item) => item.severity === 'critical' && item.status !== 'closed').length,
-    high: alerts.filter((item) => item.severity === 'high' && item.status !== 'closed').length,
-    new: alerts.filter((item) => item.status === 'new').length,
-  }), [alerts]);
-
-  async function updateStatus(alertId: string, nextStatus: AlertStatus) {
-    const current = alerts.find((alert) => alert.id === alertId);
-    if (!current || current.status === nextStatus) return;
-    setUpdatingId(alertId);
-    setError('');
-    setMessage('');
-    try {
-      const response = await authenticatedFetch('/api/alerts', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alertId, status: nextStatus }),
-      });
-      const payload: unknown = await response.json();
-      if (!response.ok) {
-        const reason = typeof payload === 'object' && payload !== null && typeof (payload as Record<string, unknown>).error === 'string'
-          ? (payload as Record<string, unknown>).error as string
-          : 'Unable to update the alert.';
-        throw new Error(reason);
-      }
-      setAlerts((items) => items.map((alert) => alert.id === alertId ? { ...alert, status: nextStatus } : alert));
-      setMessage('Alert status updated to ' + displayStatus(nextStatus) + '.');
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : 'Unable to update the alert.');
-    } finally {
-      setUpdatingId('');
-    }
+  useEffect(() => { void refreshSummary(); }, [refreshSummary, refresh]);
+  useEffect(() => {
+    const abort = new AbortController(); let active = true; setLoading(true); setError(''); setSelected('');
+    authenticatedFetch('/api/alerts?page=' + page + '&' + filters, { signal: abort.signal }).then(response => response.json()).then(data => {
+      if (!Array.isArray(data.alerts) || typeof data.total !== 'number') throw new Error('Invalid alert response.');
+      if (active) { setAlerts(data.alerts); setTotal(data.total); }
+    }).catch(failure => { if (active) { setAlerts([]); setError(failure instanceof Error ? failure.message : 'Unable to load alerts.'); } }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; abort.abort(); };
+  }, [filters, page, refresh]);
+  function apply(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const params = new URLSearchParams();
+    new FormData(event.currentTarget).forEach((value,key) => { if(String(value).trim()) params.set(key,String(value).trim()); });
+    setPage(1); setFilters(params.toString()); setMessage('');
   }
-
-  return (
-    <div className="space-y-6 pb-10">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Monitoring queue</p>
-          <h1 className="page-title">Alert Center</h1>
-          <p className="page-description">Review configured monitoring signals returned from newly detected Ethereum activity. Severity is a review priority, not proof of fraud.</p>
-        </div>
-        <button onClick={() => void loadAlerts()} disabled={loading} className="button-secondary">
-          {loading ? <Loader2 size={17} className="animate-spin" /> : <RefreshCw size={17} />}Refresh
-        </button>
-      </header>
-
-      {error && <div role="alert" className="flex gap-2 rounded-xl border border-red-400/20 bg-red-400/10 p-4 text-sm text-red-200"><AlertCircle size={18} className="shrink-0" />{error}</div>}
-      {message && <div role="status" className="flex gap-2 rounded-xl border border-emerald-400/20 bg-emerald-400/[0.08] p-4 text-sm text-emerald-100"><CheckCircle2 size={18} className="shrink-0" />{message}</div>}
-
-      <section className="grid gap-3 sm:grid-cols-3">
-        <AlertMetric label="Critical unresolved" value={loading ? '—' : String(counts.critical)} tone="red" detail="Configured critical rule results" />
-        <AlertMetric label="High unresolved" value={loading ? '—' : String(counts.high)} tone="amber" detail="Configured high rule results" />
-        <AlertMetric label="New" value={loading ? '—' : String(counts.new)} tone="cyan" detail="Awaiting analyst review" />
-      </section>
-
-      <section className="panel p-5 sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-cyan-300"><Filter size={17} /><p className="text-xs font-medium uppercase tracking-wide">Filter alert evidence</p></div>
-            <h2 className="mt-2 text-lg font-semibold text-white">Detected activity</h2>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="relative"><span className="sr-only">Search alert evidence</span><Search size={16} className="pointer-events-none absolute left-3 top-3 text-slate-500" /><input value={query} onChange={(event) => setQuery(event.target.value)} className="filter-control w-full py-2 pl-9" placeholder="Search evidence" /></label>
-            <select value={severity} onChange={(event) => setSeverity(event.target.value as typeof severity)} aria-label="Filter alerts by severity" className="filter-control py-2">
-              <option value="all">All available severities</option><option value="critical">Critical</option><option value="high">High</option>
-            </select>
-            <select value={status} onChange={(event) => setStatus(event.target.value as typeof status)} aria-label="Filter alerts by status" className="filter-control py-2">
-              <option value="all">All statuses</option><option value="new">New</option><option value="reviewing">Under Review</option><option value="closed">Resolved</option>
-            </select>
-          </div>
-        </div>
-
-        {loading && alerts.length === 0 ? (
-          <div className="flex h-48 items-center justify-center text-sm text-slate-400"><Loader2 size={18} className="mr-2 animate-spin" />Loading monitoring alerts…</div>
-        ) : visibleAlerts.length === 0 ? (
-          <div className="mt-5 flex min-h-52 flex-col items-center justify-center rounded-xl border border-dashed border-slate-700 bg-slate-950/35 p-8 text-center">
-            <BellRing size={26} className="text-cyan-300" /><p className="mt-3 text-sm text-slate-200">No alerts match the current view.</p><p className="mt-1 max-w-md text-xs leading-5 text-slate-500">Try another filter, or analyze a wallet and enable monitoring to review newly detected activity. Alerts are signals for review, not findings of fraud.</p>
-          </div>
-        ) : (
-          <div className="mt-5 overflow-x-auto rounded-xl border border-slate-800">
-            <table className="technical-table min-w-[1120px]">
-              <thead><tr><th>Severity</th><th>Alert / reason</th><th>Wallet</th><th>Evidence</th><th>Detected</th><th>Review status</th></tr></thead>
-              <tbody>
-                {visibleAlerts.map((alert) => (
-                  <tr key={alert.id} className="hover:bg-slate-800/30">
-                    <td className={'font-medium capitalize ' + (alert.severity === 'critical' ? 'text-red-200' : 'text-amber-200')}>{alert.severity}</td>
-                    <td><p className="text-slate-100">{alert.title}</p><p className="mt-1 max-w-md text-xs leading-5 text-slate-500">{alert.description}</p>{alert.risk_score !== null && <p className="mt-2 font-mono text-xs text-slate-400">Configured risk score: {alert.risk_score}/100</p>}</td>
-                    <td className="font-mono text-cyan-200" title={alert.wallet || undefined}>{alert.wallet ? <WalletAddress address={alert.wallet} /> : 'Unavailable'}</td>
-                    <td><a href={'https://etherscan.io/tx/' + alert.source_transaction_hash} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-cyan-200 hover:text-cyan-100" title={alert.source_transaction_hash}>{abbreviate(alert.source_transaction_hash)}<ExternalLink size={13} /></a></td>
-                    <td className="whitespace-nowrap text-slate-400">{formatTimestamp(alert.created_at)} UTC</td>
-                    <td><label className="sr-only" htmlFor={'alert-status-' + alert.id}>Update review status for {alert.title}</label><select id={'alert-status-' + alert.id} value={alert.status} disabled={updatingId === alert.id} onChange={(event) => void updateStatus(alert.id, event.target.value as AlertStatus)} className={'rounded-lg border px-2.5 py-1.5 text-xs font-medium outline-none disabled:opacity-60 ' + statusClass(alert.status)}><option value="new">New</option><option value="reviewing">Under Review</option><option value="closed">Resolved</option></select></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <div className="evidence-note"><ShieldAlert size={16} className="mr-2 inline-block" />Alert severity reflects configured monitoring rules and returned on-chain evidence. It does not establish criminal activity or wallet ownership.</div>
-    </div>
-  );
+  async function update(alert: AlertRow, status: AlertStatus) {
+    if (lock.current || alert.status === status) return;
+    lock.current = true; setUpdating(alert.id); setMessage(''); setActionError('');
+    try {
+      const response = await authenticatedFetch('/api/alerts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alertId: alert.id, status }) });
+      const data = await response.json(); if(data.alert?.id !== alert.id || data.alert.status !== status) throw new Error('Status change was not confirmed.');
+      setMessage('Alert status updated to ' + ALERT_STATUSES[status] + '. This does not confirm fraud.'); setRefresh(value => value + 1);
+    } catch(failure) { setActionError(failure instanceof Error ? failure.message : 'Unable to update status.'); }
+    finally { lock.current = false; setUpdating(''); }
+  }
+  return <div className="space-y-6 pb-10"><header className="page-header"><div><p className="eyebrow">Real-Time Investigation Signals</p><h1 className="page-title">CHAINTRACE ALERT CENTER</h1><p className="page-description">Alerts highlight observable blockchain activity that may require investigator review. An alert is an analytical signal, not proof of fraud or criminal activity.</p></div><button disabled={loading || !!updating} className="button-secondary" onClick={() => setRefresh(value => value + 1)}>{loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}Refresh stored alerts</button></header>
+    <section className="panel p-4 text-xs leading-6 text-slate-400"><p>Monitoring uses periodic polling. The deployment schedule requests checks every five minutes; execution, provider limits and backlog affect actual detection time. Refresh reloads saved alerts and does not run a blockchain check.</p><p>Latest recorded monitoring check: {detectedAt(summary?.latestCheck || null)} ? Latest successful check: {detectedAt(summary?.latestSuccessfulCheck || null)}. These are the most recent checks across your monitors, not a guarantee that every wallet was checked.</p></section>
+    {summaryError && <p role="alert" className="text-sm text-amber-100">{summaryError}</p>}
+    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{[['Total Alerts', summary?.total, 'All your stored alerts'], ['Critical / High Priority', summary?.priority, 'Unclosed high or critical signals'], ['Needs Review', summary?.needsReview, 'New and reviewing'], ['Recent Alerts', summary?.recent, 'Detected in the last 24 hours'], ['Monitored Wallets', summary?.monitoredWallets, 'Currently active monitors']].map(([label,value,detail]) => <article key={String(label)} className="metric-card"><p className="meta-label">{label}</p><p className="mt-4 font-mono text-3xl text-cyan-200">{typeof value === 'number' ? value : '?'}</p><p className="mt-2 text-xs text-slate-500">{detail}</p></article>)}</section>
+    <p className="text-xs text-slate-500">Overview counts cover all your alerts, independently of list filters.{summary && ' Count snapshot: ' + detectedAt(summary.asOf)}</p>
+    <form onSubmit={apply} className="panel space-y-4 p-5"><h2 className="text-lg font-semibold text-white">Filter stored evidence</h2><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"><Field label="Search wallet / transaction hash"><input name="q" placeholder="0x? (full or partial)" className="field font-mono" maxLength={66} /></Field><Field label="Exact monitored wallet"><input name="wallet" placeholder="0x?" className="field font-mono" maxLength={42} /></Field><Field label="Priority"><select name="severity" className="field"><option value="all">All priorities</option><option value="priority">Critical / High</option><option value="critical">Critical</option><option value="high">High</option></select></Field><Field label="Review status"><select name="status" className="field"><option value="all">All statuses</option><option value="needs_review">Needs Review</option>{Object.entries(ALERT_STATUSES).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="Alert type"><select name="type" className="field"><option value="all">All supported types</option>{Object.entries(ALERT_TYPES).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></Field><div className="grid grid-cols-2 gap-2"><Field label="Detected from (UTC)"><input name="from" type="date" className="field" /></Field><Field label="Through (UTC)"><input name="to" type="date" className="field" /></Field></div></div><div className="flex gap-3"><button className="button-primary" disabled={loading || !!updating}>Apply filters</button><button type="reset" className="button-secondary" disabled={!!updating} onClick={() => { setFilters(''); setPage(1); }}>Clear filters</button></div><p className="text-xs text-slate-500">Closed is the existing completed-review status; it does not establish fraud or resolution of the underlying incident.</p></form>
+    {error && <p role="alert" className="rounded-xl border border-red-400/20 p-4 text-sm text-red-200">{error}</p>}{actionError && <p role="alert" className="text-sm text-red-200">{actionError}</p>}{message && <p role="status" className="text-sm text-cyan-200">{message}</p>}
+    <section aria-label="Stored monitoring alerts" className="space-y-4">{loading ? <p role="status" className="panel p-8 text-slate-400">Loading monitoring alerts?</p> : error ? <p className="text-sm text-slate-500">Alert data is unavailable. Refresh to retry.</p> : alerts.length === 0 ? <div className="empty-state"><h2 className="text-lg text-slate-200">{total === 0 && !filters ? 'No monitoring alerts detected.' : 'No alerts match the current view.'}</h2><p className="mt-2 text-xs text-slate-400">No alerts does not prove that a wallet is safe. Enable monitoring from Wallet Investigation to observe future activity.</p><Link href="/investigate" className="button-secondary mt-4">Open Wallet Investigation</Link></div> : <>{alerts.map(alert => <article key={alert.id} className="panel p-5"><div className="flex flex-col gap-4 lg:flex-row lg:justify-between"><div className="min-w-0 flex-1"><div className="flex flex-wrap gap-2 text-xs"><span className="rounded border border-amber-400/30 px-2 py-1 capitalize text-amber-100">{alert.severity} priority</span><span className="rounded border border-slate-700 px-2 py-1 text-slate-300">{ALERT_STATUSES[alert.status as AlertStatus] || 'Unknown status'}</span></div><h2 className="mt-3 text-lg font-semibold text-white">{ALERT_TYPES[alert.alert_type as keyof typeof ALERT_TYPES] || 'Stored monitoring signal'}</h2><p className="mt-2 text-sm leading-6 text-slate-300">{alert.description}</p><div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-400"><span>{alert.wallet ? <WalletAddress address={alert.wallet} /> : 'Wallet unavailable / malformed'}</span><span>Detected {detectedAt(alert.created_at)}</span></div><p className="mt-3 text-xs text-slate-400">Trigger transaction: {alert.source_transaction_hash ? <a href={'https://etherscan.io/tx/' + alert.source_transaction_hash} target="_blank" rel="noreferrer" title={alert.source_transaction_hash} className="font-mono text-cyan-200">{alert.source_transaction_hash.slice(0,10)}?{alert.source_transaction_hash.slice(-8)}</a> : 'Unavailable / malformed'}</p></div><div className="flex flex-wrap items-start gap-3 lg:max-w-xs"><button className="button-secondary" aria-expanded={selected === alert.id} onClick={() => setSelected(selected === alert.id ? '' : alert.id)}>{selected === alert.id ? 'Hide details' : 'Inspect evidence'}</button>{alert.wallet && <Link className="button-primary" href={alertInvestigationUrl(alert.wallet)}>Investigate Wallet</Link>}<label className="text-xs text-slate-400">Update review status<select aria-label={'Review status for alert ' + alert.id} value={alert.status} disabled={!!updating} onChange={event => void update(alert,event.target.value as AlertStatus)} className="field mt-2">{!Object.hasOwn(ALERT_STATUSES,alert.status) && <option value={alert.status}>Unknown</option>}{Object.entries(ALERT_STATUSES).map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label></div></div>{selected === alert.id && <AlertEvidence id={alert.id} />}</article>)}<div className="flex items-center justify-between gap-3"><button className="button-secondary" disabled={page === 1 || !!updating} onClick={() => setPage(page-1)}>Previous</button><p className="text-xs text-slate-400">{total} matching alerts ? Page {page} of {Math.max(1,Math.ceil(total/20))}</p><button className="button-secondary" disabled={page*20 >= total || !!updating} onClick={() => setPage(page+1)}>Next</button></div></>}</section>
+  </div>;
 }
-
-function AlertMetric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: 'red' | 'amber' | 'cyan' }) {
-  const color = tone === 'red' ? 'text-red-200' : tone === 'amber' ? 'text-amber-200' : 'text-cyan-200';
-  return <article className="metric-card"><p className="meta-label">{label}</p><p className={'mt-4 font-mono text-3xl ' + color}>{value}</p><p className="mt-2 text-xs text-slate-500">{detail}</p></article>;
-}
+function Field({label,children}:{label:string;children:React.ReactNode}) { return <label className="block min-w-0 text-xs text-slate-400"><span className="mb-2 block">{label}</span>{children}</label>; }

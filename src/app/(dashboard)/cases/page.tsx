@@ -3,6 +3,7 @@
 import { WalletAddress } from '@/components/wallet-address';
 
 import Link from 'next/link';
+import { reportCaseDraft } from '@/lib/victim-reports';
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, ArrowDownUp, ChevronLeft, ChevronRight, FolderKanban, GitMerge, Loader2, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { CaseConnectionAnalysisPanel } from '@/components/case-connection-analysis';
@@ -65,6 +66,19 @@ export default function Cases() {
 
   useEffect(() => { void loadCases(); }, [loadCases]);
   useEffect(() => { setPage(1); }, [query, sortBy, statusFilter]);
+
+  useEffect(() => {
+    const reportId = new URLSearchParams(window.location.search).get('report');
+    if (!reportId) return;
+    let active = true;
+    authenticatedFetch('/api/victim-reports/' + encodeURIComponent(reportId)).then(response => response.json()).then(data => {
+      if (!active) return;
+      const draft = reportCaseDraft(data.report);
+      setTitle(draft.title); setDescription(draft.description); setWallet(draft.wallet);
+      setMessage('Draft prepared from your private allegation report. Review and submit the case form; no case has been created yet.');
+    }).catch(() => { if (active) setError('Unable to load the private source report. No report details were copied.'); });
+    return () => { active = false; };
+  }, []);
 
   const filteredCases = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
