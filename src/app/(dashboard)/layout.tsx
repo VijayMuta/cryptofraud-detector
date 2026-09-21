@@ -36,6 +36,7 @@ const primaryNav: NavItem[] = [
   { name: 'Cases', path: '/cases', icon: FolderKanban },
   { name: 'Alerts', path: '/alerts', icon: Siren },
   { name: 'Blockchain Intelligence', path: '/blockchain-intelligence', icon: Network },
+  { name: 'Fund Flow Graph', path: '/fund-flow', icon: Network },
   { name: 'Freeze/Hold Intelligence', path: '/freeze-hold', icon: ShieldCheck },
   { name: 'AI Assistant', path: '/ai', icon: Bot },
   { name: 'Victim Report', path: '/report', icon: ShieldAlert },

@@ -12,6 +12,7 @@ import { downloadFile } from '@/lib/download';
 import type { InvestigationCase, CaseWallet } from '@/lib/cases';
 import type { CaseConnectionAnalysis } from '@/lib/case-analysis';
 import type { AlertRow } from '@/lib/alerts';
+import { normalizeAttributionAddress } from '@/lib/custodial-attribution';
 import { EVIDENCE_NOTICES, PRODUCT_STATEMENT, REQUEST_TYPES, summarizeEvidence, type WalletEvidence } from '@/lib/freeze-hold';
 
 type CaseRecord = InvestigationCase & { wallets: CaseWallet[] };
@@ -23,11 +24,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default function FreezeHoldPage() {
   const [cases, setCases] = useState<CaseRecord[]>([]), [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [attempt, setAttempt] = useState(0);
+  const [flowContext, setFlowContext] = useState({ caseId: '', wallet: '' });
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setFlowContext({ caseId: params.get('case') || '', wallet: normalizeAttributionAddress(params.get('wallet') || '') || '' });
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true); setError('');
     authenticatedFetch('/api/cases', { signal: controller.signal }).then(r => r.json()).then(data => {
-      if (!controller.signal.aborted) setCases(data.cases);
+      if (!controller.signal.aborted) {
+        setCases(data.cases);
+        const requested = new URLSearchParams(window.location.search).get('case');
+        if (data.cases.some((item: CaseRecord) => item.id === requested)) setSelected(requested!);
+      }
     }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [attempt]);
@@ -39,6 +49,7 @@ export default function FreezeHoldPage() {
       {error && <p role="alert" className="text-red-300">{error} <button className={button} onClick={() => setAttempt(x => x + 1)}>Retry</button></p>}
       {!loading && !error && !cases.length && <p>No cases available. <Link className="text-cyan-200" href="/cases">Create a case</Link> to begin.</p>}
     </Section>
+    {caseRecord && flowContext.caseId === caseRecord.id && flowContext.wallet && <section className="panel space-y-2 p-5"><h2 className="text-sm font-semibold text-white">Fund Flow Graph context</h2><p className="break-all font-mono text-xs">{flowContext.wallet}</p><p className="text-xs text-slate-400">Selected wallet reference only. Load case evidence below to independently review activity and attribution. No funds have been frozen or external request submitted.</p></section>}
     {caseRecord && <RequestWorkspace key={caseRecord.id} caseRecord={caseRecord} />}
     <p className="text-xs leading-6 text-slate-400">{PRODUCT_STATEMENT} External escalation in this version is performed manually by the analyst after export.</p>
     <p className="text-xs leading-6 text-slate-400">Victim Report → Case → Wallet Investigation → Fund Tracing → Money Fingerprint → Fund Splitting Detection → Risk Signals → Cross-Wallet Intelligence → Monitoring → Custodial Endpoint Intelligence → Authorized Freeze/Hold Intelligence → Evidence Package → Authorized External Review/Intervention</p>
