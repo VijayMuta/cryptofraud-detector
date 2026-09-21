@@ -1,4 +1,5 @@
-﻿'use client';
+'use client';
+import { resolveCustodialTarget, TRUSTED_CUSTODIAL_RECORDS } from '@/lib/custodial-attribution';
 import Link from 'next/link';
 import { flushSync } from 'react-dom';
 import { AuthorizedEscalation } from '@/components/authorized-escalation';
@@ -48,6 +49,7 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
   const [connections, setConnections] = useState<CaseConnectionAnalysis | null>(null);
   const [loading, setLoading] = useState(false), [warnings, setWarnings] = useState<string[]>(['Live evidence has not been loaded.']);
   const [requestType, setRequestType] = useState<string>(REQUEST_TYPES[0]), [priority, setPriority] = useState('Standard');
+  const [selectedEndpoint, setSelectedEndpoint] = useState('');
   const [target, setTarget] = useState(''), [reason, setReason] = useState(''), [notes, setNotes] = useState('');
   const [status, setStatus] = useState<InternalStatus>('DRAFT');
   const [targetDetails, setTargetDetails] = useState<TargetDetails>({ entityType: 'Cryptocurrency Exchange', attributionStatus: 'UNVERIFIED / MANUAL ENTRY', contactReference: '', attributionReference: '' });
@@ -87,6 +89,12 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
     return () => controller.abort();
   }, [attempt, caseRecord]);
   const evidence = useMemo(() => summarizeEvidence(wallets), [wallets]);
+  const resolvedTarget = resolveCustodialTarget(selectedEndpoint, evidence.endpoints, target, targetDetails.entityType);
+  const effectiveTargetDetails: TargetDetails = { ...targetDetails, entityType: resolvedTarget.entityType,
+    source: resolvedTarget.source, verifiedEndpoint: resolvedTarget.endpoint,
+    attributionStatus: resolvedTarget.endpoint ? 'VERIFIED' : targetDetails.attributionStatus === 'VERIFIED' ? 'UNVERIFIED / MANUAL ENTRY' : targetDetails.attributionStatus,
+    attributionReference: resolvedTarget.endpoint?.record ? [resolvedTarget.endpoint.record.sourceName, resolvedTarget.endpoint.record.sourceReference].filter(Boolean).join(' - ') : targetDetails.attributionReference,
+  };
   const hasConnections = !!connections && !!(connections.directTransfers.length || connections.sharedCounterparties.length || connections.temporalRelationships.length);
   const checklist: [string, boolean][] = [
     ['Suspect wallet address', !!caseRecord.wallets.length], ['Transaction hash(es)', !!evidence.transactions.length],
@@ -95,7 +103,7 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
     ['Money Fingerprint', evidence.behavioral.some(row => !!row.moneyFingerprint)], ['Fund Splitting indicators', evidence.behavioral.some(row => !!row.fundSplitting)],
     ['Cross-wallet connections', hasConnections], ['Monitoring alerts', !!alerts.length], ['Case reference', true],
   ];
-  const readiness: [string, boolean][] = [...checklist.filter(([label]) => !['Fund Splitting indicators', 'Cross-wallet connections', 'Monitoring alerts', 'Transaction values'].includes(label)), ['Verified endpoint attribution', false], ['Analyst notes', !!notes.trim()]];
+  const readiness: [string, boolean][] = [...checklist.filter(([label]) => !['Fund Splitting indicators', 'Cross-wallet connections', 'Monitoring alerts', 'Transaction values'].includes(label)), ['Verified endpoint attribution', evidence.endpoints.some(endpoint => endpoint.status === 'VERIFIED')], ['Analyst notes', !!notes.trim()]];
   const score = Math.round(readiness.filter(([, available]) => available).length / readiness.length * 100), locked = status !== 'DRAFT';
   const draftPackage = {
     product: 'CHAINTRACE Authorized Freeze/Hold Intelligence', requestId: identity.id, generatedAt: identity.at,
@@ -103,15 +111,15 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
     network: caseRecord.wallets.length ? 'Ethereum Mainnet' : null, reportedSuspectWallets: caseRecord.wallets.map(wallet => wallet.address),
     blockchainObservedFacts: { transactions: evidence.transactions, valueUnit: 'wei' }, custodialEndpoints: evidence.endpoints,
     analyticalSignals: evidence.behavioral, crossWalletEvidence: connections, monitoringAlerts: alerts,
-    requestedIntervention: requestType, priority, targetEntity: target || null, targetEntitySource: 'Analyst-entered; not verified attribution',
+    requestedIntervention: requestType, priority, targetEntity: resolvedTarget.entityName || null, targetEntitySource: resolvedTarget.source,
     reason, analystNotes: notes, evidenceChecklist: Object.fromEntries(checklist), evidenceReadiness: { percent: score, criteria: Object.fromEntries(readiness), meaning: 'Evidence availability, not fraud probability or legal sufficiency.' },
     status, auditTrail: audit, delivery: 'Internal preparation only. No exchange or authority has been contacted by CHAINTRACE.',
-    limitations: ['Recent normal Ethereum transfer sample; not complete wallet history, token transfers, or internal transfers.', 'Case wallet membership is a reported association, not proof of wrongdoing.', 'No verified custodial attribution source is configured.', 'Audit times are browser timestamps; this is not a tamper-proof database audit.', ...warnings, ...(connections?.limitations || [])], notices: [...EVIDENCE_NOTICES, ESCALATION_NOTICE],
+    limitations: ['Recent normal Ethereum transfer sample; not complete wallet history, token transfers, or internal transfers.', 'Case wallet membership is a reported association, not proof of wrongdoing.', TRUSTED_CUSTODIAL_RECORDS.length ? 'Attribution is limited to the reviewed registry and does not establish fraud or control over assets.' : 'No trusted attribution dataset/API is configured; the production registry is empty.', 'Audit times are browser timestamps; this is not a tamper-proof database audit.', ...warnings, ...(connections?.limitations || [])], notices: [...EVIDENCE_NOTICES, ESCALATION_NOTICE],
   };
   const [preparedSnapshot, setPreparedSnapshot] = useState<(typeof draftPackage & { preparedAt: string; targetDetails: TargetDetails; evidenceValidation: ReturnType<typeof validateEscalation> }) | null>(null);
   const validation = preparedSnapshot?.evidenceValidation || validateEscalation(draftPackage, notApplicable);
   const packageData = { ...(preparedSnapshot || draftPackage), status, auditTrail: audit,
-    targetDetails: preparedSnapshot?.targetDetails || targetDetails,
+    targetDetails: preparedSnapshot?.targetDetails || effectiveTargetDetails,
     evidenceValidation: validation, externalResponses: responses,
     externalResponseStatus: responses.length ? responses[responses.length - 1].status : null,
     externalResponseSource: responses.length ? 'Analyst recorded; not independently confirmed by CHAINTRACE' : null,
@@ -129,10 +137,11 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
       log('Evidence readiness checked', checked.map(row => row.label + ': ' + row.state).join('; '));
       const missing = checked.filter(row => row.required && row.state !== 'AVAILABLE');
       if (missing.length) { setMessage('Complete required fields: ' + missing.map(row => row.label).join(', ') + '. Optional missing evidence does not block preparation.'); return; }
-      if (targetDetails.attributionStatus !== 'UNVERIFIED / MANUAL ENTRY' && !targetDetails.attributionReference.trim()) { setMessage('Enter a supporting reference for the analyst attribution assessment, or use UNVERIFIED / MANUAL ENTRY.'); return; }
+      if (selectedEndpoint && !resolvedTarget.endpoint) { setMessage('The selected verified endpoint is no longer in the loaded evidence. Select an available endpoint or use manual entry.'); return; }
+      if (!resolvedTarget.endpoint && effectiveTargetDetails.attributionStatus !== 'UNVERIFIED / MANUAL ENTRY' && !targetDetails.attributionReference.trim()) { setMessage('Enter a supporting reference for the analyst attribution assessment, or use UNVERIFIED / MANUAL ENTRY.'); return; }
       if (next === 'PREPARED FOR AUTHORIZED ESCALATION') {
         const at = new Date().toISOString();
-        setPreparedSnapshot(snapshotPackage({ ...draftPackage, status: next, generatedAt: at, preparedAt: at, targetDetails, evidenceValidation: checked }));
+        setPreparedSnapshot(snapshotPackage({ ...draftPackage, status: next, generatedAt: at, preparedAt: at, targetDetails: effectiveTargetDetails, evidenceValidation: checked }));
         log('Prepared for authorized escalation', 'Evidence snapshot locked. Nothing transmitted to an external entity.', next);
         setStatus(next); setMessage('Evidence package prepared for authorized external review.'); return;
       }
@@ -170,7 +179,7 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
       {!caseRecord.wallets.length && <p>No wallets attached. <Link href={`/cases/${caseRecord.id}`} className="text-cyan-200">Open case</Link> to add evidence.</p>}
       <button className={button} disabled={loading || locked || !caseRecord.wallets.length} onClick={() => setAttempt(x => x + 1)}>{loading ? 'Loading live evidence…' : 'Load / refresh case evidence'}</button><p className="text-xs text-slate-400">Uses live Alchemy data and stored alerts. Multi-wallet cases also load cross-wallet analysis. Monitoring is periodic/manual.</p><div role="status" className="text-sm text-amber-200">{warnings.map(warning => <p key={warning}>{warning}</p>)}</div>
     </Section>
-    <Section title="Custodial Endpoint Intelligence"><p className="text-sm">Destinations have successful outgoing value transfers in the retrieved sample. Verified and possible custodial classifications require attribution evidence that is currently unavailable.</p>{!evidence.endpoints.length && <p className="text-sm text-slate-400">No observed destination evidence available.</p>}<div className="grid gap-3 md:grid-cols-2">{evidence.endpoints.map(endpoint => <div key={endpoint.address} className="rounded-xl border border-slate-800 p-4"><WalletAddress address={endpoint.address} /><p className="mt-2 text-xs text-amber-200">{endpoint.status}</p><p className="mt-2 text-xs">{endpoint.attribution}</p></div>)}</div></Section>
+    <Section title="Custodial Endpoint Intelligence"><p className="text-sm">Destination activity is blockchain-observed evidence. Identity is verified only by an exact network/address match in the trusted attribution registry. Attribution is not proof of fraud.</p>{!evidence.endpoints.some(endpoint => endpoint.status === 'VERIFIED') && <p className="text-sm text-amber-200">No verified custodial attribution is currently available.</p>}{!TRUSTED_CUSTODIAL_RECORDS.length && <p className="text-xs text-slate-400">No trusted dataset/API configured. Production attribution registry is empty.</p>}<div className="grid gap-3 md:grid-cols-2">{evidence.endpoints.map(endpoint => <div key={endpoint.address} className="space-y-2 rounded-xl border border-slate-800 p-4"><p className="break-all font-mono text-xs">{endpoint.address}</p><WalletAddress address={endpoint.address} /><p className="text-xs font-semibold text-cyan-200">{endpoint.status}</p><p className="text-xs">{endpoint.attribution}</p>{endpoint.record && <dl className="space-y-2 break-words text-sm"><dt>Entity</dt><dd>{endpoint.record.entityName} ({endpoint.record.entityType})</dd><dt>Network</dt><dd>{endpoint.network}</dd><dt>Evidence / source</dt><dd>{endpoint.record.sourceName}</dd><dt>Source reference</dt><dd>{endpoint.record.sourceReference || 'Not supplied'}</dd><dt>Verified at</dt><dd>{endpoint.record.verifiedAt}</dd>{endpoint.record.notes && <><dt>Notes</dt><dd>{endpoint.record.notes}</dd></>}</dl>}{endpoint.possibleRecords.map(record => <p key={record.id} className="text-xs text-amber-200">POSSIBLE / UNVERIFIED record: {record.entityName}; source: {record.sourceName}. Not verified ownership.</p>)}</div>)}</div></Section>
     <Section title="Investigation evidence">
       <p className="text-sm text-slate-400">{evidence.transactions.length} retrieved transactions · {alerts.length} stored alerts. Facts, analytical signals, and attribution are kept separate in the export.</p>
       <div className="grid gap-4 md:grid-cols-2">{evidence.behavioral.map(row => <div key={row.address} className="rounded-xl border border-slate-800 p-4"><WalletAddress address={row.address} /><p className="mt-2 text-xs text-slate-400">{row.source} · retrieved {row.retrievedAt}</p><h3 className="mt-3 font-medium text-white">Money Fingerprint</h3><p className="text-sm">{row.moneyFingerprint ? `Received ${row.moneyFingerprint.incomingEth}; sent ${row.moneyFingerprint.outgoingEth}; ${row.moneyFingerprint.counterparties} counterparties.` : 'Unavailable: no successful transfers in this sample.'}</p><h3 className="mt-3 font-medium text-white">Analytical signals</h3>{row.riskSignals.map(signal => <p key={signal} className="text-sm">{signal}</p>)}<p className="mt-2 text-sm">{row.fundSplitting ? `Fund Splitting: ${row.fundSplitting.transactionCount} transactions to ${row.fundSplitting.destinationCount} destinations from ${row.fundSplitting.start} to ${row.fundSplitting.end}.` : 'No Fund Splitting finding in this sample.'}</p></div>)}</div>
@@ -183,8 +192,8 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
       <label className="text-sm">Priority<select className={input} value={priority} onChange={e => setPriority(e.target.value)}>{['Standard', 'High', 'Critical'].map(value => <option key={value}>{value}</option>)}</select></label>
       <label className="text-sm">Reason for Request<textarea maxLength={10000} rows={4} className={input} value={reason} onChange={e => setReason(e.target.value)} /></label>
       <label className="text-sm">Investigator Notes<textarea maxLength={10000} rows={4} className={input} value={notes} onChange={e => setNotes(e.target.value)} /></label>
-    </fieldset><h3 className="font-medium text-white">Evidence Checklist</h3><div className="grid gap-3 sm:grid-cols-2">{checklist.map(([label, available]) => <label key={label} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={available} readOnly disabled />{label}<span className="text-xs text-slate-400">{available ? 'Available' : 'Unavailable / not observed'}</span></label>)}</div><p className="text-cyan-200">Evidence Readiness: {score}%</p><p className="text-xs">Availability across eight criteria; not fraud probability or legal approval. Verified attribution is unavailable. Missing findings do not establish safety.</p></Section>
-    <AuthorizedEscalation message={message} status={status} busy={loading || !identity.id} target={target} setTarget={setTarget} targetDetails={targetDetails} setTargetDetails={setTargetDetails} validation={validation} notApplicable={notApplicable} setNotApplicable={setNotApplicable} audit={audit} responses={responses} preparedAt={preparedSnapshot?.preparedAt} onValidate={() => { log('Evidence readiness checked', validation.map(row => row.label + ': ' + row.state).join('; ')); setMessage('Evidence readiness checked. Optional missing evidence remains disclosed.'); }} onStatus={transition} onResponse={recordResponse} />
+    </fieldset><h3 className="font-medium text-white">Evidence Checklist</h3><div className="grid gap-3 sm:grid-cols-2">{checklist.map(([label, available]) => <label key={label} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={available} readOnly disabled />{label}<span className="text-xs text-slate-400">{available ? 'Available' : 'Unavailable / not observed'}</span></label>)}</div><p className="text-cyan-200">Evidence Readiness: {score}%</p><p className="text-xs">Availability across eight criteria; not fraud probability or legal approval. Verified attribution requires a trusted exact-address record. Missing findings do not establish safety.</p></Section>
+    <AuthorizedEscalation message={message} status={status} busy={loading || !identity.id} target={resolvedTarget.entityName} setTarget={setTarget} selectedEndpoint={selectedEndpoint} onSelectEndpoint={setSelectedEndpoint} endpoints={evidence.endpoints} targetDetails={effectiveTargetDetails} setTargetDetails={value => setTargetDetails({ entityType: value.entityType, attributionStatus: value.attributionStatus === 'VERIFIED' ? 'UNVERIFIED / MANUAL ENTRY' : value.attributionStatus, contactReference: value.contactReference, attributionReference: value.attributionReference })} validation={validation} notApplicable={notApplicable} setNotApplicable={setNotApplicable} audit={audit} responses={responses} preparedAt={preparedSnapshot?.preparedAt} onValidate={() => { log('Evidence readiness checked', validation.map(row => row.label + ': ' + row.state).join('; ')); setMessage('Evidence readiness checked. Optional missing evidence remains disclosed.'); }} onStatus={transition} onResponse={recordResponse} />
     <Section title="Evidence Package Preview"><FreezeHoldEvidenceReport data={packageData} /><div className="flex flex-wrap gap-3 print:hidden"><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('copy')}>Copy package</button><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('json')}>Download JSON</button><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('print')}>Print / Save as PDF</button></div></Section>
 
     <FreezeHoldPrintReport data={packageData} />

@@ -78,3 +78,16 @@ test('prepared reports retain distinct internal status and manually recorded ext
   for (const value of ['PREPARED FOR AUTHORIZED ESCALATION', 'External Response Status', 'ACKNOWLEDGED', 'EXT-123', 'Recorded responder', 'not independently verified by CHAINTRACE', 'MISSING', 'Target ref']) assert.ok(html.includes(value), value);
   assert.ok(render(data).includes('No external response recorded.'));
 });
+test('screen and print export verified endpoint and selected-target provenance', () => {
+  const { load } = require('./load-typescript.cjs');
+  const { lookupCustodialAttribution } = load('src/lib/custodial-attribution.ts');
+  const record = { id: 'TEST-ONLY-REPORT', network: 'ethereum', address: destination, entityName: 'TEST ONLY Report Custodian', entityType: 'Custodian', status: 'VERIFIED', sourceName: 'TEST ONLY Reviewed Registry', sourceReference: 'https://example.invalid/attribution-proof', verifiedAt: '2025-01-01T00:00:00Z', notes: 'Not real-world attribution.' };
+  const endpoint = lookupCustodialAttribution('ethereum', destination, [record]);
+  const report = { ...data, custodialEndpoints: [endpoint], targetEntity: record.entityName, targetEntitySource: 'BLOCKCHAIN/ATTRIBUTION VERIFIED', targetDetails: { entityType: 'Custodian', attributionStatus: 'VERIFIED', contactReference: '', attributionReference: record.sourceReference, source: 'BLOCKCHAIN/ATTRIBUTION VERIFIED', verifiedEndpoint: endpoint } };
+  for (const printable of [true, false]) {
+    const html = renderToStaticMarkup(React.createElement(FreezeHoldPrintDocument, { data: report, printable }));
+    for (const value of [destination, record.entityName, record.entityType, record.sourceName, record.sourceReference, record.verifiedAt, 'BLOCKCHAIN/ATTRIBUTION VERIFIED', 'Attribution is not proof of fraud']) assert.ok(html.includes(value), value);
+    assert.ok(!html.includes('No verified custodial attribution is currently available.'));
+    assert.ok(!html.includes('Analyst-entered - not blockchain-verified attribution.'));
+  }
+});

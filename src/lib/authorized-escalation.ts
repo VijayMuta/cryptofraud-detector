@@ -1,3 +1,4 @@
+import type { CustodialEndpoint } from '@/lib/custodial-attribution';
 ﻿import type { FreezeHoldPrintPackage } from '@/components/freeze-hold-print-report';
 
 export const INTERNAL_STATUSES = ['DRAFT', 'READY FOR REVIEW', 'PREPARED FOR AUTHORIZED ESCALATION', 'CLOSED'] as const;
@@ -5,7 +6,7 @@ export type InternalStatus = typeof INTERNAL_STATUSES[number];
 export const EXTERNAL_STATUSES = ['ACKNOWLEDGED', 'UNDER REVIEW', 'ACTIONED', 'DECLINED'] as const;
 export type ExternalStatus = typeof EXTERNAL_STATUSES[number];
 export const ENTITY_TYPES = ['Cryptocurrency Exchange', 'Custodian', 'Compliance Team', 'Law-Enforcement / Competent Authority', 'Other Authorized Entity'] as const;
-export type TargetDetails = { entityType: string; attributionStatus: 'VERIFIED' | 'POSSIBLE' | 'UNVERIFIED / MANUAL ENTRY'; contactReference: string; attributionReference: string };
+export type TargetDetails = { entityType: string; attributionStatus: 'VERIFIED' | 'POSSIBLE' | 'UNVERIFIED / MANUAL ENTRY'; contactReference: string; attributionReference: string; source?: string; verifiedEndpoint?: CustodialEndpoint | null };
 export type ExternalResponse = { referenceId: string; entity: string; respondedAt: string; status: ExternalStatus; notes: string; confirmed: boolean; recordedAt: string; source: 'Analyst recorded' };
 export type AuditEntry = { at: string; action: string; status: string; source: 'CHAINTRACE' | 'Analyst recorded'; note: string };
 export type EvidenceValidation = { label: string; state: 'AVAILABLE' | 'MISSING' | 'NOT APPLICABLE'; required: boolean; explanation: string };
@@ -26,7 +27,7 @@ export function validateEscalation(data: FreezeHoldPrintPackage, notApplicable: 
     ['Fund Splitting analysis', data.analyticalSignals.some(row => !!row.fundSplitting), false],
     ['Cross-wallet evidence', !!data.crossWalletEvidence, false],
     ['Monitoring alerts', data.monitoringAlerts.length > 0, false],
-    ['Custodial endpoint attribution', data.custodialEndpoints.some(row => row.status === 'VERIFIED CUSTODIAL ENDPOINT'), false],
+    ['Custodial endpoint attribution', data.custodialEndpoints.some(row => row.status === 'VERIFIED' && !!row.record), false],
     ['Target entity', !!data.targetEntity?.trim(), true],
     ['Reason for request', !!data.reason.trim(), true],
     ['Investigator notes', !!data.analystNotes.trim(), true],

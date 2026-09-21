@@ -1,3 +1,4 @@
+import { lookupCustodialAttribution, ATTRIBUTION_NOTICE } from '@/lib/custodial-attribution';
 import { analyzeWalletTransactions, formatEth, type WalletTransaction } from '@/lib/wallet-analysis';
 
 export const PRODUCT_STATEMENT = 'CHAINTRACE enables an authorized freeze/hold intelligence workflow by detecting suspicious fund movement, identifying potential custodial endpoints, generating verifiable blockchain evidence, and escalating an intervention request to participating exchanges/custodians or competent authorities.';
@@ -6,6 +7,7 @@ export const EVIDENCE_NOTICES = [
   'Risk signals are investigative indicators and are not proof of fraud.',
   'Wallet connections do not by themselves prove common ownership or coordinated activity.',
   'Any freeze or hold decision remains the responsibility of the authorized receiving entity or competent authority.',
+  ATTRIBUTION_NOTICE,
 ];
 export const REQUEST_TYPES = ['Temporary Hold Review', 'Freeze Review', 'Enhanced Due Diligence Review', 'Transaction Monitoring Request', 'Law-Enforcement / Authority Escalation'] as const;
 export const STATUSES = ['DRAFT', 'READY FOR REVIEW', 'PREPARED FOR AUTHORIZED ESCALATION', 'ACKNOWLEDGED', 'UNDER REVIEW', 'ACTIONED', 'DECLINED', 'CLOSED'] as const;
@@ -30,5 +32,5 @@ export function summarizeEvidence(wallets: WalletEvidence[]) {
       fundSplitting: analysis.splittingAlarm ? { ...analysis.splittingAlarm, totalWei: analysis.splittingAlarm.totalWei.toString() } : null,
     };
   });
-  return { transactions, behavioral, endpoints: destinations.map(address => ({ address, status: 'UNATTRIBUTED / UNKNOWN', attribution: 'No verified custodial attribution is currently available for this address.' })) };
+  return { transactions, behavioral, endpoints: destinations.map(address => lookupCustodialAttribution('Ethereum Mainnet', address)) };
 }

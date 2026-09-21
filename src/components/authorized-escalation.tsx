@@ -1,4 +1,5 @@
 ﻿'use client';
+import type { CustodialEndpoint } from '@/lib/custodial-attribution';
 import { useState } from 'react';
 import { ENTITY_TYPES, EXTERNAL_STATUSES, ESCALATION_NOTICE, SUBMISSION_NOTICE, type AuditEntry, type EvidenceValidation, type ExternalResponse, type InternalStatus, type TargetDetails } from '@/lib/authorized-escalation';
 
@@ -6,6 +7,7 @@ const input = 'mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 t
 const button = 'rounded-xl border border-cyan-400/25 bg-cyan-400/[0.06] px-4 py-2.5 text-sm text-cyan-100 disabled:opacity-40';
 type Props = {
   status: InternalStatus; busy: boolean; message: string; target: string; setTarget: (value: string) => void;
+  endpoints: CustodialEndpoint[]; selectedEndpoint: string; onSelectEndpoint: (value: string) => void;
   targetDetails: TargetDetails; setTargetDetails: (value: TargetDetails) => void;
   validation: EvidenceValidation[]; notApplicable: Record<string, string>; setNotApplicable: (value: Record<string, string>) => void;
   audit: AuditEntry[]; responses: ExternalResponse[]; preparedAt?: string;
@@ -26,10 +28,12 @@ export function AuthorizedEscalation(props: Props) {
       <div className="rounded-xl border border-violet-400/25 p-4"><h3 className="text-xs font-semibold text-violet-200">EXTERNAL RESPONSE STATUS</h3><p className="mt-2 text-sm">{props.responses.length ? `${props.responses[props.responses.length - 1].status} (analyst recorded)` : 'No external response recorded'}</p><p className="mt-3 text-xs leading-6">Authorized External Channel → External Review → Outcome Recorded</p><p className="mt-2 text-xs">CHAINTRACE does not independently verify external responses.</p></div>
     </div>
     <h3 className="font-semibold text-white">Target Entity</h3>
-    <fieldset disabled={!editable} className="grid gap-4 md:grid-cols-2">
+    <label className="block text-sm">Target source<select className={input} disabled={!editable} value={props.selectedEndpoint} onChange={e => props.onSelectEndpoint(e.target.value)}><option value="">ANALYST-ENTERED / UNVERIFIED</option>{props.endpoints.filter(endpoint => endpoint.status === 'VERIFIED' && endpoint.record).map(endpoint => <option key={endpoint.address} value={endpoint.address}>{endpoint.record!.entityName} - {endpoint.address} - BLOCKCHAIN/ATTRIBUTION VERIFIED</option>)}</select></label>
+    <p className="text-xs text-cyan-200">{targetDetails.source || 'ANALYST-ENTERED / UNVERIFIED'}</p>
+    <fieldset disabled={!editable || !!targetDetails.verifiedEndpoint} className="grid gap-4 md:grid-cols-2">
       <label className="text-sm">Entity Name<input className={input} maxLength={200} value={props.target} onChange={e => props.setTarget(e.target.value)} /></label>
       <label className="text-sm">Entity Type<select className={input} value={targetDetails.entityType} onChange={e => props.setTargetDetails({ ...targetDetails, entityType: e.target.value })}>{ENTITY_TYPES.map(value => <option key={value}>{value}</option>)}</select></label>
-      <label className="text-sm">Attribution Status (analyst assessment)<select className={input} value={targetDetails.attributionStatus} onChange={e => props.setTargetDetails({ ...targetDetails, attributionStatus: e.target.value as TargetDetails['attributionStatus'] })}>{['UNVERIFIED / MANUAL ENTRY', 'POSSIBLE', 'VERIFIED'].map(value => <option key={value}>{value}</option>)}</select></label>
+      <label className="text-sm">Attribution Status (analyst assessment)<select className={input} value={targetDetails.attributionStatus} onChange={e => props.setTargetDetails({ ...targetDetails, attributionStatus: e.target.value as TargetDetails['attributionStatus'] })}>{(targetDetails.verifiedEndpoint ? ['VERIFIED'] : ['UNVERIFIED / MANUAL ENTRY', 'POSSIBLE']).map(value => <option key={value}>{value}</option>)}</select></label>
       <label className="text-sm">Contact / Reference (optional)<input maxLength={1000} className={input} value={targetDetails.contactReference} onChange={e => props.setTargetDetails({ ...targetDetails, contactReference: e.target.value })} /></label>
       {targetDetails.attributionStatus !== 'UNVERIFIED / MANUAL ENTRY' && <label className="text-sm md:col-span-2">Supporting attribution source/reference (required for this assessment)<input maxLength={2000} className={input} value={targetDetails.attributionReference} onChange={e => props.setTargetDetails({ ...targetDetails, attributionReference: e.target.value })} /></label>}
     </fieldset>
