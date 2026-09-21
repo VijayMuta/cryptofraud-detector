@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Download, FileJson2, FileText, Loader2, Printer, RefreshCw, ShieldCheck } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/client-api';
+import { downloadFile } from '@/lib/download';
 
 type CaseWallet = { id: string; address: string; network: 'ethereum'; added_at: string };
 type CaseRecord = {
@@ -28,17 +29,6 @@ function csvValue(value: string) {
 
 function safeFilePart(value: string) {
   return value.replace(/[^a-z0-9-_]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'report';
-}
-
-function downloadFile(filename: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 export default function Reports() {
