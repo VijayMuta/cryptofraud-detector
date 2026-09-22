@@ -3,8 +3,15 @@
 import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ShieldCheck, LockKeyhole, Mail, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, LockKeyhole, Mail, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabase';
+import { isAuthError } from '@supabase/supabase-js';
+
+function isRateLimitError(error: unknown) {
+  return (isAuthError(error) && (
+    error.status === 429 || error.code === 'over_email_send_rate_limit' || error.code === 'over_request_rate_limit'
+  )) || (error instanceof Error && /rate[ _-]?limit/i.test(error.message));
+}
 
 export default function Login() {
   const router = useRouter();
@@ -12,6 +19,9 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [needsConfirmation, setNeedsConfirmation] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState('');
 
   useEffect(() => {
     const checkSession = async () => {
@@ -27,17 +37,46 @@ export default function Login() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    if (loading || resending) return;
     setLoading(true);
     setMessage('');
+    setNeedsConfirmation(false);
+    setResendSuccess('');
     try {
       const { error } = await getSupabaseBrowser().auth.signInWithPassword({ email, password });
       if (error) throw error;
       router.replace('/dashboard');
       router.refresh();
-    } catch (error: any) {
-      setMessage(error?.message || 'Unable to sign in.');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : '';
+      if ((isAuthError(error) && error.code === 'email_not_confirmed') || /email not confirmed/i.test(errorMessage)) {
+        setNeedsConfirmation(true);
+        setMessage('Please verify your email before signing in. Check your inbox and spam folder for the confirmation link, or resend the confirmation email below.');
+      } else {
+        setMessage(isRateLimitError(error)
+          ? 'Too many sign-in attempts. Please wait before trying again.'
+          : errorMessage || 'Unable to sign in.');
+      }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    if (resending || loading || !needsConfirmation) return;
+    setResending(true);
+    setMessage('');
+    setResendSuccess('');
+    try {
+      const { error } = await getSupabaseBrowser().auth.resend({ type: 'signup', email });
+      if (error) throw error;
+      setResendSuccess('Confirmation email sent. Check your inbox and spam folder, then follow the link to verify your email before signing in.');
+    } catch (error: unknown) {
+      setMessage(isRateLimitError(error)
+        ? 'Too many verification emails were requested. Please wait before trying again.'
+        : 'Unable to resend the confirmation email. Please try again later.');
+    } finally {
+      setResending(false);
     }
   }
 
@@ -63,16 +102,35 @@ export default function Login() {
           </div>
 
           {message && (
-            <div className="mb-5 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300 flex gap-2">
+            <div role="alert" className="mb-5 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300 flex gap-2">
               <AlertCircle size={18} className="shrink-0" />
               <span>{message}</span>
             </div>
           )}
 
+          {resendSuccess && (
+            <div role="status" className="mb-5 rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-300 flex gap-2">
+              <CheckCircle2 size={18} className="shrink-0" />
+              <span>{resendSuccess}</span>
+            </div>
+          )}
+
+          {needsConfirmation && (
+            <button type="button" onClick={handleResendConfirmation} disabled={resending || loading} className="mb-5 w-full rounded-lg border border-cyan-400/20 bg-cyan-400/10 py-3 text-sm font-semibold text-cyan-300 flex items-center justify-center gap-2 hover:bg-cyan-400/20 disabled:opacity-60 disabled:cursor-not-allowed">
+              {resending && <Loader2 className="animate-spin" size={18} />}
+              {resending ? 'Sending confirmation email…' : 'Resend confirmation email'}
+            </button>
+          )}
+
           <label className="block text-sm text-slate-300 mb-2">Email</label>
           <div className="relative mb-4">
             <Mail className="absolute left-3 top-3 text-slate-500" size={18} />
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" required placeholder="analyst@example.com" className="field pl-10" />
+            <input value={email} disabled={loading || resending} onChange={e => {
+              setEmail(e.target.value);
+              setNeedsConfirmation(false);
+              setResendSuccess('');
+              setMessage('');
+            }} type="email" required placeholder="analyst@example.com" className="field pl-10" />
           </div>
 
           <label className="block text-sm text-slate-300 mb-2">Password</label>
@@ -85,7 +143,7 @@ export default function Login() {
             <Link href="/reset-password" className="text-sm text-cyan-300 hover:text-cyan-200">Forgot password?</Link>
           </div>
 
-          <button disabled={loading} className="button-primary w-full py-3">
+          <button disabled={loading || resending} className="button-primary w-full py-3">
             {loading ? <Loader2 className="animate-spin" size={18} /> : <ArrowRight size={18} />}
             {loading ? 'Signing in…' : 'Sign in'}
           </button>

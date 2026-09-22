@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ShieldCheck, UserRound, Mail, LockKeyhole, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { getSupabaseBrowser } from '@/lib/supabase';
+import { isAuthError } from '@supabase/supabase-js';
 
 export default function Register() {
   const router = useRouter();
@@ -33,9 +34,18 @@ export default function Register() {
       if (error) throw error;
       if (data.session) router.replace('/dashboard');
       else setSuccess(true);
-    } catch (error: any) {
-      setMessage(error?.message || 'Unable to create account.');
-    } finally { setLoading(false); }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : '';
+      const rateLimited = (isAuthError(error) && (
+        error.status === 429 || error.code === 'over_email_send_rate_limit' || error.code === 'over_request_rate_limit'
+      )) || /rate[ _-]?limit/i.test(errorMessage);
+
+      setMessage(rateLimited
+        ? 'Too many verification emails were requested. Please wait before trying again, or sign in if you already created an account.'
+        : errorMessage || 'Unable to create account.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
