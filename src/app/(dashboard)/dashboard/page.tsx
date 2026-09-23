@@ -62,6 +62,7 @@ export default function Dashboard() {
   ].filter((item) => !Number.isNaN(Date.parse(item.at))).sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, 6), [alerts, cases]);
 
   return <div className="space-y-6 pb-10">
+    <section className="panel p-5"><h2 className="text-lg font-semibold text-white">Investigation Timeline</h2><p className="mt-2 text-sm text-slate-400">Review case chronology, observed transfers, and the source evidence behind investigative signals.</p><Link href="/investigation-timeline" className="mt-3 inline-block text-sm text-cyan-200">Open Investigation Timeline →</Link></section>
     <section className="panel p-5"><h2 className="text-lg font-semibold text-white">Authorized Freeze/Hold Intelligence</h2><p className="mt-2 text-sm text-slate-400">Prepare verifiable blockchain evidence for authorized intervention.</p><div className="mt-3 flex flex-wrap gap-5"><Link href="/freeze-hold" className="text-sm text-cyan-200">Open Intelligence Workflow →</Link><Link href="/fund-flow" className="text-sm text-cyan-200">Explore Fund Flow Graph →</Link></div></section>
     <header className="panel-primary relative overflow-hidden px-5 py-6 sm:px-7 sm:py-7">
       <div className="pointer-events-none absolute inset-y-0 right-0 w-2/5 bg-[radial-gradient(circle_at_70%_30%,rgba(34,211,238,0.16),transparent_54%)]" />

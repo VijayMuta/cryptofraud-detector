@@ -22,12 +22,17 @@ export default function FundFlowPage() {
     const controller = new AbortController();
     setLoading(true); setError('');
     authenticatedFetch('/api/cases', { signal: controller.signal }).then(r => r.json()).then(data => {
-      if (!controller.signal.aborted) setCases(data.cases);
+      if (!controller.signal.aborted) {
+        setCases(data.cases);
+        const requested = new URLSearchParams(window.location.search).get('case');
+        if (data.cases.some((item: CaseRecord) => item.id === requested)) setSelected(requested!);
+      }
     }).catch(e => { if (!controller.signal.aborted) setError(e.message); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [attempt]);
   const record = cases.find(item => item.id === selected);
   return <div className="space-y-6 pb-10">
+    <Link href={selected ? `/investigation-timeline?case=${encodeURIComponent(selected)}` : '/investigation-timeline'} className="inline-block text-sm text-cyan-200">Open Investigation Timeline →</Link>
     <header className="panel-primary p-6"><p className="eyebrow">Blockchain evidence</p><h1 className="mt-3 text-3xl font-semibold text-white">Fund Flow Graph</h1><p className="mt-3 text-sm">Explore observed transfers, connected case wallets, and existing analytical signals.</p></header>
     <section className="panel space-y-4 p-5"><label className="block text-sm">Investigation / Case<select className={input} value={selected} disabled={loading} onChange={e => setSelected(e.target.value)}><option value="">{loading ? 'Loading cases…' : 'Select a case'}</option>{cases.map(item => <option key={item.id} value={item.id}>{item.case_code} · {item.title}</option>)}</select></label>
       {error && <p role="alert" className="text-red-300">{error} <button className={button} onClick={() => setAttempt(n => n + 1)}>Retry</button></p>}
