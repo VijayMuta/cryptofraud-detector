@@ -1,6 +1,6 @@
 export const INTEGRITY_NOTICE = 'SHA-256 integrity verification can detect whether the hashed evidence content has changed since the fingerprint was generated. It does not independently establish authenticity, ownership, legal admissibility, or proof of fraud.';
 export const EVIDENCE_VERSION = 'chaintrace-evidence-v1' as const;
-export type EvidencePackageType = 'case-report' | 'freeze-hold';
+export type EvidencePackageType = 'case-report' | 'freeze-hold' | 'case-evidence-package';
 export type EvidencePayload = { version: typeof EVIDENCE_VERSION; packageType: EvidencePackageType; evidence: Record<string, unknown> };
 export type IntegrityRecord = {
   algorithm: 'SHA-256'; hash: string; generatedAt: string;

@@ -181,6 +181,19 @@
   body { background: white; color: black; }
   .app-shell > aside, .app-shell > div > header { display: none !important; }
   .app-shell > div { width: 100% !important; }
+  .case-evidence-package, .case-evidence-package * {
+    color: black !important;
+    background: white !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    overflow-wrap: anywhere;
+  }
+  .case-evidence-package section { border-color: #aaa !important; }
+  .case-evidence-package h2, .case-evidence-package h3 { break-after: avoid; }
+  body:has(.case-evidence-package) #workspace > div > :not(.case-evidence-package) { display: none !important; }
+  body:has(.case-evidence-package) .app-shell,
+  body:has(.case-evidence-package) .app-shell > div,
+  body:has(.case-evidence-package) main { height: auto !important; overflow: visible !important; }
 }
 
 /* Consistent visual hierarchy across existing Phase 1–5 components. */
