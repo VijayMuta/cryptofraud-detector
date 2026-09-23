@@ -50,8 +50,8 @@ test('large packages retain the final transaction and use unclipped normal print
   assert.ok(html.includes('body:has(#freeze-hold-print-report) &gt;') || html.includes('body:has(#freeze-hold-print-report) >'));
   const page = fs.readFileSync('src/app/(dashboard)/freeze-hold/page.tsx', 'utf8');
   assert.ok(!page.includes('visibility: hidden'));
-  assert.ok(page.includes('<FreezeHoldPrintReport data={packageData} />'));
-  assert.ok(page.includes('JSON.stringify({ ...packageData, auditTrail: [...audit, entry] }, null, 2)'));
+  assert.ok(page.includes('<FreezeHoldPrintReport data={printSnapshot || packageData} />'));
+  assert.ok(page.includes('JSON.stringify(exportSnapshot, null, 2)'));
 });
 test('screen and print share twelve report sections and full evidence without a JSON preview', () => {
   const print = render(data);
@@ -77,6 +77,16 @@ test('prepared reports retain distinct internal status and manually recorded ext
   const html = render({ ...data, status: 'PREPARED FOR AUTHORIZED ESCALATION', preparedAt: '2026-09-21T12:35:00Z', targetDetails: { entityType: 'Custodian', attributionStatus: 'UNVERIFIED / MANUAL ENTRY', contactReference: 'Target ref', attributionReference: '' }, evidenceValidation: [{ label: 'Transaction evidence', required: false, state: 'MISSING', explanation: 'Not loaded' }], externalResponses: [{ status: 'ACKNOWLEDGED', referenceId: 'EXT-123', entity: 'Recorded responder', respondedAt: '2026-09-21T12:36:00Z', recordedAt: '2026-09-21T12:37:00Z', confirmed: true, notes: 'Received outside the app', source: 'Analyst recorded' }] });
   for (const value of ['PREPARED FOR AUTHORIZED ESCALATION', 'External Response Status', 'ACKNOWLEDGED', 'EXT-123', 'Recorded responder', 'not independently verified by CHAINTRACE', 'MISSING', 'Target ref']) assert.ok(html.includes(value), value);
   assert.ok(render(data).includes('No external response recorded.'));
+});
+
+test('integrity metadata prints in full and its fingerprint verifies the exported evidence snapshot', async () => {
+  const { load } = require('./load-typescript.cjs');
+  const { createEvidencePayload, createIntegrityRecord, verifyEvidence, INTEGRITY_NOTICE } = load('src/lib/evidence-integrity.ts');
+  const integrity = await createIntegrityRecord(createEvidencePayload('freeze-hold', data), { caseId: data.case.id, caseCode: data.case.code });
+  const exported = { ...data, integrity };
+  const html = render(exported);
+  for (const text of [integrity.hash, integrity.generatedAt, 'SHA-256', INTEGRITY_NOTICE, 'does not assert external delivery']) assert.ok(html.includes(text), text);
+  assert.equal((await verifyEvidence(createEvidencePayload('freeze-hold', JSON.parse(JSON.stringify(exported))), integrity.hash)).status, 'MATCH');
 });
 test('screen and print export verified endpoint and selected-target provenance', () => {
   const { load } = require('./load-typescript.cjs');

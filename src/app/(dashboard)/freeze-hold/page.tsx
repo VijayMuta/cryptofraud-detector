@@ -9,6 +9,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { WalletAddress } from '@/components/wallet-address';
 import { authenticatedFetch } from '@/lib/client-api';
 import { downloadFile } from '@/lib/download';
+import { EvidenceIntegrity, useEvidenceIntegrity } from '@/components/evidence-integrity';
+import { createEvidencePayload, createIntegrityRecord } from '@/lib/evidence-integrity';
+import type { FreezeHoldPrintPackage } from '@/components/freeze-hold-print-report';
 import type { InvestigationCase, CaseWallet } from '@/lib/cases';
 import type { CaseConnectionAnalysis } from '@/lib/case-analysis';
 import type { AlertRow } from '@/lib/alerts';
@@ -129,12 +132,16 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
   };
   const [preparedSnapshot, setPreparedSnapshot] = useState<(typeof draftPackage & { preparedAt: string; targetDetails: TargetDetails; evidenceValidation: ReturnType<typeof validateEscalation> }) | null>(null);
   const validation = preparedSnapshot?.evidenceValidation || validateEscalation(draftPackage, notApplicable);
-  const packageData = { ...(preparedSnapshot || draftPackage), status, auditTrail: audit,
+  const basePackageData = { ...(preparedSnapshot || draftPackage), status, auditTrail: audit,
     targetDetails: preparedSnapshot?.targetDetails || effectiveTargetDetails,
     evidenceValidation: validation, externalResponses: responses,
     externalResponseStatus: responses.length ? responses[responses.length - 1].status : null,
     externalResponseSource: responses.length ? 'Analyst recorded; not independently confirmed by CHAINTRACE' : null,
   };
+  const integrityPayload = !loading && identity.id ? createEvidencePayload('freeze-hold', basePackageData) : null;
+  const integrity = useEvidenceIntegrity(integrityPayload, { caseId: caseRecord.id, caseCode: caseRecord.case_code });
+  const packageData = { ...basePackageData, ...(integrity.record ? { integrity: integrity.record } : {}) };
+  const [printSnapshot, setPrintSnapshot] = useState<FreezeHoldPrintPackage | null>(null);
   function log(action: string, note: string, eventStatus: string = status, source: AuditEntry['source'] = 'CHAINTRACE') {
     const entry: AuditEntry = { at: new Date().toISOString(), action, status: eventStatus, source, note };
     setAudit(current => [...current, entry]);
@@ -176,14 +183,18 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
     if (loading || !identity.id) return;
     const entry: AuditEntry = { at: new Date().toISOString(), action: format === 'print' ? 'Print / Save as PDF requested' : format === 'json' ? 'JSON download initiated' : 'Evidence package copied', status, source: 'CHAINTRACE', note: 'Local export only. No external delivery; file saving is controlled by the browser.' };
     try {
-      const content = JSON.stringify({ ...packageData, auditTrail: [...audit, entry] }, null, 2);
+      // Include the export audit entry BEFORE hashing; never hash the integrity record itself.
+      const exportData = { ...basePackageData, auditTrail: [...audit, entry] };
+      const exportIntegrity = await createIntegrityRecord(createEvidencePayload('freeze-hold', exportData), { caseId: caseRecord.id, caseCode: caseRecord.case_code });
+      const exportSnapshot = { ...exportData, integrity: exportIntegrity };
+      const content = JSON.stringify(exportSnapshot, null, 2);
       if (format === 'copy') await navigator.clipboard.writeText(content);
       if (format === 'json') downloadFile('chaintrace-' + identity.id + '.json', content, 'application/json');
       // Commit the updated report to the DOM before opening the print dialog.
-      flushSync(() => setAudit(current => [...current, entry]));
-      if (format === 'print') window.print();
+      flushSync(() => { setAudit(current => [...current, entry]); if (format === 'print') setPrintSnapshot(exportSnapshot); });
+      if (format === 'print') { window.print(); setPrintSnapshot(null); }
       setMessage(format === 'print' ? 'Print dialog requested. Saving or cancellation is controlled by your browser.' : format === 'json' ? 'JSON download initiated. No external submission made.' : 'Evidence package copied.');
-    } catch { setMessage('Export unavailable. Try another export option. No external submission was made.'); }
+    } catch { setMessage('Export or SHA-256 hashing unavailable. No integrity-verified export was completed. Try again. No external submission was made.'); }
   }
   return <>
     <Section title={`${caseRecord.case_code} · ${caseRecord.title}`}><p className="text-xs">Case ID: {caseRecord.id} · Network: {caseRecord.wallets.length ? 'Ethereum Mainnet' : 'Unavailable'}</p><div className="flex flex-wrap gap-4">{caseRecord.wallets.map(wallet => <WalletAddress key={wallet.id} address={wallet.address} />)}</div>
@@ -205,9 +216,10 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
       <label className="text-sm">Investigator Notes<textarea maxLength={10000} rows={4} className={input} value={notes} onChange={e => setNotes(e.target.value)} /></label>
     </fieldset><h3 className="font-medium text-white">Evidence Checklist</h3><div className="grid gap-3 sm:grid-cols-2">{checklist.map(([label, available]) => <label key={label} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={available} readOnly disabled />{label}<span className="text-xs text-slate-400">{available ? 'Available' : 'Unavailable / not observed'}</span></label>)}</div><p className="text-cyan-200">Evidence Readiness: {score}%</p><p className="text-xs">Availability across eight criteria; not fraud probability or legal approval. Verified attribution requires a trusted exact-address record. Missing findings do not establish safety.</p></Section>
     <AuthorizedEscalation message={message} status={status} busy={loading || !identity.id} target={resolvedTarget.entityName} setTarget={setTarget} selectedEndpoint={selectedEndpoint} onSelectEndpoint={setSelectedEndpoint} endpoints={evidence.endpoints} targetDetails={effectiveTargetDetails} setTargetDetails={value => setTargetDetails({ entityType: value.entityType, attributionStatus: value.attributionStatus === 'VERIFIED' ? 'UNVERIFIED / MANUAL ENTRY' : value.attributionStatus, contactReference: value.contactReference, attributionReference: value.attributionReference })} validation={validation} notApplicable={notApplicable} setNotApplicable={setNotApplicable} audit={audit} responses={responses} preparedAt={preparedSnapshot?.preparedAt} onValidate={() => { log('Evidence readiness checked', validation.map(row => row.label + ': ' + row.state).join('; ')); setMessage('Evidence readiness checked. Optional missing evidence remains disclosed.'); }} onStatus={transition} onResponse={recordResponse} />
+    <EvidenceIntegrity payload={integrityPayload} integrity={integrity} />
     <Section title="Evidence Package Preview"><FreezeHoldEvidenceReport data={packageData} /><div className="flex flex-wrap gap-3 print:hidden"><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('copy')}>Copy package</button><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('json')}>Download JSON</button><button disabled={loading || !identity.id} className={button} onClick={() => void exportPackage('print')}>Print / Save as PDF</button></div></Section>
 
-    <FreezeHoldPrintReport data={packageData} />
+    <FreezeHoldPrintReport data={printSnapshot || packageData} />
   </>;
 }
 

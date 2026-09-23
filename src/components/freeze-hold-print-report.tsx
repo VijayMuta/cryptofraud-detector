@@ -6,6 +6,7 @@ import type { TargetDetails, EvidenceValidation, ExternalResponse } from '@/lib/
 import type { AlertRow } from '@/lib/alerts';
 import type { CaseConnectionAnalysis } from '@/lib/case-analysis';
 import type { summarizeEvidence } from '@/lib/freeze-hold';
+import type { IntegrityRecord } from '@/lib/evidence-integrity';
 
 type Evidence = ReturnType<typeof summarizeEvidence>;
 export type FreezeHoldPrintPackage = {
@@ -21,6 +22,7 @@ export type FreezeHoldPrintPackage = {
   auditTrail: { status: string; at: string; note: string; action?: string; source?: string }[];
   preparedAt?: string; targetDetails?: TargetDetails; evidenceValidation?: EvidenceValidation[]; externalResponses?: ExternalResponse[];
   delivery: string; limitations: string[]; notices: string[];
+  integrity?: IntegrityRecord;
 };
 
 const NO_EVIDENCE = 'No blockchain evidence is currently available for this field.';
@@ -114,6 +116,7 @@ export function FreezeHoldPrintDocument({ data, printable = true }: { data: Free
     <header><p><strong>CHAINTRACE</strong></p><h1>Authorized Freeze/Hold Intelligence</h1><p>Evidence report for authorized review</p><p>{data.delivery}</p></header>
     <div className="report-notices"><p>Risk signals are investigative indicators and are not proof of fraud.</p><p>Wallet connections do not by themselves prove common ownership or coordinated activity.</p><p>CHAINTRACE does not autonomously freeze blockchain assets.</p><p>Any freeze or hold decision remains the responsibility of the authorized receiving entity or competent authority.</p></div>
     <Section title="1. Request Summary"><dl><Field label="Request ID" value={data.requestId} /><Field label="Generation timestamp (UTC)" value={data.generatedAt} /><Field label="CHAINTRACE internal status" value={data.status} /><Field label="Request type" value={data.requestedIntervention} /><Field label="Priority" value={data.priority} /><Field label="Target entity" value={data.targetEntity} /><Field label="Target entity source" value={data.targetEntitySource} /><Field label="Prepared snapshot timestamp" value={data.preparedAt} /></dl></Section>
+    {data.integrity && <Section title="Evidence Integrity"><dl><Field label="Algorithm" value={data.integrity.algorithm} /><Field label="Evidence SHA-256" value={data.integrity.hash} /><Field label="Integrity generated (UTC)" value={data.integrity.generatedAt} /><Field label="Package version" value={data.integrity.packageVersion} /><Field label="Hash scope" value={data.integrity.scope} /></dl><p>{data.integrity.notice}</p><p>The fingerprint does not assert external delivery, authority verification, or legal certification.</p></Section>}
     <Section title="2. Case Information"><dl><Field label="CHAINTRACE Case ID" value={data.case.id} /><Field label="Case code" value={data.case.code} /><Field label="Case title" value={data.case.title} /><Field label="Network" value={data.network} /><Field label="Case description" value={data.case.description} /></dl></Section>
     <Section title="3. Reported / Suspect Wallets">{data.reportedSuspectWallets.length ? <ul>{data.reportedSuspectWallets.map(address => <li key={address}><FullAddress address={address} printable={printable} /></li>)}</ul> : <p>No reported wallet addresses available.</p>}</Section>
     <Section title="4. Blockchain Evidence"><p><strong>Transactions analyzed in the loaded package: {data.blockchainObservedFacts.transactions.length}</strong></p><p>Loaded transaction evidence only. Failed or unknown receipt statuses do not confirm that funds moved.</p>{data.blockchainObservedFacts.transactions.length ? data.blockchainObservedFacts.transactions.map((tx, index) => <div className="report-entry" key={tx.hash}><h3>Transaction {index + 1}</h3><dl><Field blockchain label="Full transaction hash" value={tx.hash} /><Field blockchain label="From" value={tx.from} /><Field blockchain label="To" value={tx.to} /><Field blockchain label={`Value (${data.blockchainObservedFacts.valueUnit})`} value={tx.value} /><Field blockchain label="Timestamp (UTC)" value={tx.timestamp} /><Field blockchain label="Receipt status" value={tx.status} /><Field blockchain label="Block number" value={tx.blockNumber} /></dl></div>) : <p>{NO_EVIDENCE}</p>}<h3>Observed destinations / fund-flow evidence</h3><p>These destinations were identified by the existing analysis from successful outgoing nonzero value transfers. Full sender, recipient, value and receipt information appears above.</p>{data.custodialEndpoints.length ? <ul>{data.custodialEndpoints.map(endpoint => <li key={endpoint.address}>{endpoint.address}</li>)}</ul> : <p>{NO_EVIDENCE}</p>}</Section>
