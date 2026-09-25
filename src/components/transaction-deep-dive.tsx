@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
+import { recordCaseActivity } from '@/lib/case-activity-client';
+import { normalizeAttributionNetwork } from '@/lib/custodial-attribution';
 import { isTransactionHash, normalizeTransactionEvidence, transactionAttributions, transactionInvestigationContext, TRANSACTION_CONTEXT_NOTICE, type TransactionDeepDiveEvidence } from '@/lib/transaction-deep-dive';
 import type { TimelineCase } from '@/lib/investigation-timeline';
 
@@ -15,6 +17,8 @@ export function TransactionDeepDive({ hash, caseId }: { hash: string; caseId: st
   const [error, setError] = useState('');
   const [caseError, setCaseError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const viewed = useRef(new Set<string>());
+  const [auditWarning, setAuditWarning] = useState('');
   useEffect(() => {
     if (!valid) return;
     const controller = new AbortController();
@@ -40,12 +44,20 @@ export function TransactionDeepDive({ hash, caseId }: { hash: string; caseId: st
     void Promise.allSettled([loadTransaction(), loadCase()]);
     return () => controller.abort();
   }, [hash, caseId, valid, attempt]);
+  useEffect(() => {
+    if (!evidence || evidence.hash !== hash.toLowerCase() || !record || record.id !== caseId || normalizeAttributionNetwork(evidence.network || '') !== 'eip155:1') return;
+    const key = caseId + ':' + evidence.hash;
+    if (viewed.current.has(key)) return;
+    viewed.current.add(key);
+    void recordCaseActivity(caseId, 'TRANSACTION_VIEWED', { transactionHash: evidence.hash, network: 'ethereum' }).then(setAuditWarning);
+  }, [evidence, record, caseId, hash]);
   const context = evidence ? transactionInvestigationContext(evidence, record) : null;
   const attributions = evidence ? transactionAttributions(evidence) : [];
   const query = record ? `?case=${encodeURIComponent(record.id)}` : '';
   const membership = (value: boolean | null | undefined) => value === true ? 'Yes — private case record match' : value === false ? 'No match in the selected case' : 'UNAVAILABLE';
 
   return <div className="mx-auto max-w-6xl space-y-6 pb-10">
+    {auditWarning && <p role="alert" className="text-sm text-amber-200">{auditWarning}</p>}
     <header className="panel-primary p-6"><p className="eyebrow">CHAINTRACE / Blockchain evidence</p><h1 className="mt-3 text-3xl font-semibold text-white">Transaction Deep Dive</h1><p className="mt-3 text-sm text-slate-300">Inspect retrieved Ethereum transaction evidence and authenticated private case context.</p><p className="mt-4 break-all font-mono text-xs text-cyan-200">Requested hash: {hash}</p></header>
     <nav aria-label="Investigation navigation" className="flex flex-wrap gap-3">
       {record && <Link className="button-secondary" href={`/cases/${encodeURIComponent(record.id)}`}>Case Details</Link>}

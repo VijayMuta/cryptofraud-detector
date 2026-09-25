@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import { canonicalSerialize, createIntegrityRecord, verifyEvidence, INTEGRITY_NOTICE, INTEGRITY_SCOPE, type EvidencePayload, type IntegrityRecord, type VerificationResult } from '@/lib/evidence-integrity';
 import { downloadFile } from '@/lib/download';
+import { recordCaseActivity } from '@/lib/case-activity-client';
+import { integrityActivity } from '@/lib/case-activity';
 
 /** Results are bound to canonical content, so changes invalidate them immediately. */
 export function useEvidenceIntegrity(payload: EvidencePayload | null, reference: { caseId?: string; caseCode?: string }) {
@@ -41,7 +43,13 @@ export function EvidenceIntegrity({ payload, integrity }: { payload: EvidencePay
   async function verify() {
     setChecking(true); setResult(null);
     const result = await verifyEvidence(payload, expected);
-    setResult({ canonical: integrity.canonical, expected, result }); setChecking(false);
+    setResult({ canonical: integrity.canonical, expected, result });
+    const event = integrityActivity(result, record);
+    if (event) {
+      const warning = await recordCaseActivity(event.caseId, event.eventType, event.metadata);
+      setMessage(warning);
+    }
+    setChecking(false);
   }
   return <section className="panel space-y-4 p-5" aria-label="Evidence Integrity">
     <h2 className="text-lg font-semibold text-white">Evidence Integrity · SHA-256</h2>
@@ -52,7 +60,7 @@ export function EvidenceIntegrity({ payload, integrity }: { payload: EvidencePay
     <details className="text-xs leading-6 text-slate-400"><summary className="cursor-pointer text-cyan-200">What is hashed?</summary><p>{INTEGRITY_SCOPE}</p><p>UI controls and visual formatting are outside the payload. Substantive updates, including new retrieval timestamps or audit entries, can legitimately change the fingerprint.</p></details>
     <div className="flex flex-wrap gap-3 print:hidden"><button className={button} disabled={!record} onClick={async () => { try { await navigator.clipboard.writeText(record!.hash); setMessage('Hash copied.'); } catch { setMessage('Copy unavailable. Select the full hash above to copy it.'); } }}>Copy Hash</button><button className={button} disabled={!record} onClick={() => { try { downloadFile('chaintrace-integrity.json', JSON.stringify(record, null, 2) + '\n', 'application/json'); setMessage('Integrity record download initiated.'); } catch { setMessage('Download unavailable. Try again.'); } }}>Download Integrity Record</button></div>
     <p role="status" className="text-xs">{message}</p>
-    <div className="space-y-3 print:hidden"><label className="block text-sm">Previously generated SHA-256 hash<input className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-white" value={expected} onChange={event => setExpected(event.target.value)} placeholder="64 hexadecimal characters" spellCheck={false} /></label><button className={button} disabled={checking} onClick={() => void verify()}>{checking ? 'Verifying…' : 'Verify Integrity'}</button>
+    <div className="space-y-3 print:hidden"><label className="block text-sm">Previously generated SHA-256 hash<input className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-white" value={expected} onChange={event => setExpected(event.target.value)} placeholder="64 hexadecimal characters" spellCheck={false} /></label><button className={button} disabled={checking || !record} onClick={() => void verify()}>{checking ? 'Verifying…' : 'Verify Integrity'}</button>
       {currentResult && <div role="status" className={`rounded-xl border p-4 text-sm ${currentResult.status === 'MATCH' ? 'border-emerald-400/30 text-emerald-200' : 'border-amber-400/30 text-amber-200'}`}><strong>{currentResult.status.replace('_', ' ')}</strong><p className="mt-2">{currentResult.message}</p>{currentResult.status === 'MISMATCH' && <p className="mt-2">Changes may be legitimate; a mismatch does not establish malicious tampering.</p>}</div>}
     </div>
   </section>;

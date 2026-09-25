@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
+import { recordCaseActivity } from '@/lib/case-activity-client';
 import { downloadFile } from '@/lib/download';
 import { EvidenceIntegrity, useEvidenceIntegrity } from '@/components/evidence-integrity';
 import { createEvidencePayload } from '@/lib/evidence-integrity';
@@ -71,7 +72,13 @@ export default function EvidencePackagePage() {
           connections = result.analysis;
         } catch { issues.push('Cross-wallet analysis unavailable from the existing API.'); }
       }
-      if (!controller.signal.aborted) setSnapshot(buildCaseEvidencePackage({ record: current, wallets, reports, connections, issues, generatedAt: new Date().toISOString() }));
+      if (!controller.signal.aborted) {
+        const generatedAt = new Date().toISOString();
+        const completed = buildCaseEvidencePackage({ record: current, wallets, reports, connections, issues, generatedAt });
+        setSnapshot(completed);
+        const warning = await recordCaseActivity(current.id, 'EVIDENCE_PACKAGE_GENERATED', { packageVersion: 'chaintrace-evidence-v1', completedAt: generatedAt });
+        if (!controller.signal.aborted && warning) setError(warning);
+      }
     } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Package generation failed.'); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   }

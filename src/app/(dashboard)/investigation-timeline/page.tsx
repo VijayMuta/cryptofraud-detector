@@ -5,6 +5,7 @@ import { TimelineEventCard } from '@/components/timeline-event-card';
 import { TransactionLink } from '@/components/transaction-link';
 import { useEffect, useMemo, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
+import { recordCaseActivity } from '@/lib/case-activity-client';
 import { buildInvestigationTimeline, linkedReportIds, orderTimeline, TIMELINE_DISCLAIMER, TIMELINE_FILTERS, type TimelineCase, type TimelineEvent, type TimelineFilter } from '@/lib/investigation-timeline';
 import type { WalletEvidence } from '@/lib/freeze-hold';
 import type { VictimReport } from '@/lib/victim-reports';
@@ -82,6 +83,13 @@ function TimelineWorkspace({ record }: { record: TimelineCase }) {
       if (record.wallets.length > 1 && !controller.signal.aborted) {
         try { analysis = (await (await authenticatedFetch(`/api/cases/${encodeURIComponent(record.id)}/analysis`, options)).json()).analysis; }
         catch { warnings.push('Cross-wallet analysis unavailable. Retrieved transfers remain available.'); }
+      }
+      if (!controller.signal.aborted && collected.length) {
+        const warning = await recordCaseActivity(record.id, 'BLOCKCHAIN_EVIDENCE_REFRESHED', {
+          requestedWallets: record.wallets.length, loadedWallets: collected.length, provider: 'Alchemy',
+          component: 'investigation-timeline', completedAt: new Date().toISOString(),
+        });
+        if (warning) warnings.push(warning);
       }
       if (!controller.signal.aborted) { setWallets(collected); setReports(loadedReports); setConnections(analysis); setIssues(warnings); setLoading(false); }
     }

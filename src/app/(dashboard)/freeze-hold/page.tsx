@@ -8,6 +8,7 @@ import { FreezeHoldEvidenceReport, FreezeHoldPrintReport } from '@/components/fr
 import { useEffect, useMemo, useState } from 'react';
 import { WalletAddress } from '@/components/wallet-address';
 import { authenticatedFetch } from '@/lib/client-api';
+import { recordCaseActivity } from '@/lib/case-activity-client';
 import { downloadFile } from '@/lib/download';
 import { EvidenceIntegrity, useEvidenceIntegrity } from '@/components/evidence-integrity';
 import { createEvidencePayload, createIntegrityRecord } from '@/lib/evidence-integrity';
@@ -48,7 +49,7 @@ export default function FreezeHoldPage() {
   return <div className="space-y-6 pb-10">
     <header className="panel-primary p-6"><p className="eyebrow">Authorized intervention</p><h1 className="mt-3 text-3xl font-semibold text-white">Authorized Freeze/Hold Intelligence</h1><p className="mt-3 text-sm">Generate evidence-backed intervention requests for review by authorized exchanges, custodians, compliance teams, or competent authorities.</p><p className="mt-4 text-sm text-amber-200">{EVIDENCE_NOTICES[0]}</p></header>
     <Section title="Investigation / Case selection"><label className="block text-sm">Select an existing case<select className={input} value={selected} disabled={loading} onChange={e => setSelected(e.target.value)}><option value="">{loading ? 'Loading private cases…' : 'Select a case'}</option>{cases.map(item => <option key={item.id} value={item.id}>{item.case_code} · {item.title}</option>)}</select></label>
-      <p className="text-xs text-amber-200">Requests and audit trails stay in this page session. Export before switching cases, navigating away, or reloading.</p>
+      <p className="text-xs text-amber-200">Draft packages and their detailed workflow notes stay in this page session. Completed preparation and explicit integrity checks are also recorded in persistent Case Activity. Export packages before switching cases, navigating away, or reloading.</p>
       {error && <p role="alert" className="text-red-300">{error} <button className={button} onClick={() => setAttempt(x => x + 1)}>Retry</button></p>}
       {!loading && !error && !cases.length && <p>No cases available. <Link className="text-cyan-200" href="/cases">Create a case</Link> to begin.</p>}
     </Section>
@@ -93,6 +94,14 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
       if (caseRecord.wallets.length > 1 && !controller.signal.aborted) {
         try { analysis = (await (await authenticatedFetch(`/api/cases/${caseRecord.id}/analysis`, options)).json()).analysis; }
         catch { issues.push('Cross-wallet analysis unavailable.'); }
+      }
+      if (controller.signal.aborted) return;
+      if (attempt > 0 && collected.length) {
+        const warning = await recordCaseActivity(caseRecord.id, 'BLOCKCHAIN_EVIDENCE_REFRESHED', {
+          requestedWallets: caseRecord.wallets.length, loadedWallets: collected.length, provider: 'Alchemy',
+          component: 'freeze-hold', completedAt: new Date().toISOString(),
+        });
+        if (warning) issues.push(warning);
       }
       if (controller.signal.aborted) return;
       setWallets(collected); setAlerts(storedAlerts); setConnections(analysis); setWarnings(issues); setLoading(false);
@@ -161,7 +170,9 @@ function RequestWorkspace({ caseRecord }: { caseRecord: CaseRecord }) {
         const at = new Date().toISOString();
         setPreparedSnapshot(snapshotPackage({ ...draftPackage, status: next, generatedAt: at, preparedAt: at, targetDetails: effectiveTargetDetails, evidenceValidation: checked }));
         log('Prepared for authorized escalation', 'Evidence snapshot locked. Nothing transmitted to an external entity.', next);
-        setStatus(next); setMessage('Evidence package prepared for authorized external review.'); return;
+        setStatus(next); setMessage('Evidence package prepared for authorized external review.');
+        void recordCaseActivity(caseRecord.id, 'FREEZE_HOLD_PACKAGE_PREPARED', { completedAt: at }).then(warning => { if (warning) setMessage(warning); });
+        return;
       }
     }
     if (next === 'CLOSED' && !preparedSnapshot) return;

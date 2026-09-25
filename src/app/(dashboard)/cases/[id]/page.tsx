@@ -1,6 +1,7 @@
 'use client';
 
 import { WalletAddress } from '@/components/wallet-address';
+import { CaseNotes } from '@/components/case-notes';
 
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
@@ -23,6 +24,7 @@ import { CaseConnectionAnalysisPanel } from '@/components/case-connection-analys
 import { MAX_WALLETS_PER_CASE } from '@/lib/case-constants';
 import type { CaseConnectionAnalysis } from '@/lib/case-analysis';
 import { authenticatedFetch } from '@/lib/client-api';
+import { recordCaseActivity } from '@/lib/case-activity-client';
 
 type CaseStatus = 'open' | 'investigating' | 'closed' | 'archived';
 
@@ -189,6 +191,11 @@ export default function CaseDetails({ params }: { params: { id: string } }) {
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Unable to retrieve live Ethereum data.');
       setAnalysis(payload.analysis as CaseConnectionAnalysis);
+      const auditWarning = await recordCaseActivity(caseRecord.id, 'BLOCKCHAIN_EVIDENCE_REFRESHED', {
+        requestedWallets: caseRecord.wallets.length, loadedWallets: payload.analysis.walletActivity.length,
+        provider: 'case-history', component: 'case-details', completedAt: new Date().toISOString(),
+      });
+      if (auditWarning) setError(auditWarning);
       setMessage('Live Ethereum analysis completed. All displayed relationships include the source transactions below.');
     } catch (analysisError) {
       setError(analysisError instanceof Error ? analysisError.message : 'Unable to retrieve live Ethereum data.');
@@ -215,6 +222,7 @@ export default function CaseDetails({ params }: { params: { id: string } }) {
       {error && <div role="alert" className="mb-5 flex gap-2 rounded-lg border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300"><AlertCircle size={18} className="shrink-0" /><span>{error}</span></div>}
       {message && <div className="mb-5 rounded-lg border border-emerald-400/20 bg-emerald-400/10 p-3 text-sm text-emerald-100">{message}</div>}
 
+      <Link className="button-secondary inline-flex" href={`/cases/${encodeURIComponent(caseRecord.id)}/activity`}>Case Activity / Audit Trail</Link>
       <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
         <form onSubmit={saveCase} className="panel p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-2"><FileText size={18} className="text-cyan-300" /><div><p className="eyebrow">Case management</p><h2 className="mt-1 text-lg font-semibold text-white">Case information</h2></div></div>
@@ -242,6 +250,8 @@ export default function CaseDetails({ params }: { params: { id: string } }) {
         <form onSubmit={addWallet} className="mt-4 flex flex-col gap-3 sm:flex-row"><input aria-label="Ethereum wallet address to add to this case" value={newWallet} onChange={(event) => setNewWallet(event.target.value)} disabled={caseRecord.wallets.length >= MAX_WALLETS_PER_CASE} spellCheck={false} placeholder="0x… Ethereum wallet address" className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-900 p-2 font-mono text-sm text-white outline-none focus:border-cyan-400 disabled:opacity-50" /><button disabled={addingWallet || caseRecord.wallets.length >= MAX_WALLETS_PER_CASE} className="inline-flex items-center justify-center gap-2 rounded border border-cyan-400/30 px-4 py-2 text-sm text-cyan-200 hover:bg-cyan-400/10 disabled:cursor-not-allowed disabled:opacity-60">{addingWallet ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />} Add wallet</button></form>
         {caseRecord.wallets.length === 0 ? <p className="mt-5 rounded border border-dashed border-slate-700 bg-slate-900/30 p-5 text-center text-sm text-slate-500">No suspect wallets are associated with this private case yet.</p> : <div className="mt-4 divide-y divide-slate-800 rounded border border-slate-800">{caseRecord.wallets.map((wallet) => <div key={wallet.id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/20 p-4"><div className="min-w-0"><WalletAddress address={wallet.address} /><p className="mt-1 text-xs text-slate-500">Added {formatDate(wallet.added_at)} UTC</p></div><button onClick={() => void removeWallet(wallet.id)} disabled={removingWalletId === wallet.id} className="inline-flex items-center gap-1 rounded border border-red-400/20 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-60">{removingWalletId === wallet.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Remove</button></div>)}</div>}
       </section>
+
+      <CaseNotes key={caseRecord.id} caseId={caseRecord.id} />
 
       <section className="evidence-note"><div className="flex items-center gap-2"><CalendarClock size={15} /><span>Case data is private to your account. Blockchain addresses and transactions remain public on Ethereum; this application stores only your private case metadata and saved comparison evidence.</span></div></section>
 
