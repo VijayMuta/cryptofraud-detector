@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createPublicClient, formatEther, http } from 'viem';
+import { createPublicClient, formatEther, http, TransactionNotFoundError } from 'viem';
 import { mainnet } from 'viem/chains';
 import { getRequestUser } from '@/lib/request-auth';
+import { isTransactionHash } from '@/lib/transaction-deep-dive';
 
 const ALCHEMY_RPC_BASE_URL = 'https://eth-mainnet.g.alchemy.com/v2';
-const HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   if (!user) return response({ error: 'Sign in to inspect transaction evidence.' }, 401);
 
   const requestedHash = request.nextUrl.searchParams.get('hash')?.trim() || '';
-  if (!HASH_PATTERN.test(requestedHash)) {
+  if (!isTransactionHash(requestedHash)) {
     return response({ error: 'Enter a valid 0x-prefixed 64-character Ethereum transaction hash.' }, 400);
   }
 
@@ -44,12 +44,17 @@ export async function GET(request: NextRequest) {
 
   try {
     const transaction = await client.getTransaction({ hash });
+    if (transaction.hash.toLowerCase() !== hash.toLowerCase()) throw new Error('Mismatched transaction response.');
     const [receipt, block] = await Promise.all([
       client.getTransactionReceipt({ hash }).catch(() => null),
       transaction.blockNumber === null
         ? Promise.resolve(null)
         : client.getBlock({ blockNumber: transaction.blockNumber }).catch(() => null),
     ]);
+
+    // Bind supplemental evidence to this mined transaction, including its block.
+    const matchingReceipt = transaction.blockHash && transaction.blockNumber !== null && receipt?.transactionHash.toLowerCase() === transaction.hash.toLowerCase() && receipt.blockHash === transaction.blockHash && receipt.blockNumber === transaction.blockNumber ? receipt : null;
+    const matchingBlock = transaction.blockHash && block?.hash === transaction.blockHash && block.number === transaction.blockNumber ? block : null;
 
     return response({
       transaction: {
@@ -59,14 +64,15 @@ export async function GET(request: NextRequest) {
         valueWei: transaction.value.toString(),
         valueEth: formatEther(transaction.value),
         blockNumber: transaction.blockNumber?.toString() || null,
-        timestamp: isoTimestamp(block?.timestamp),
-        status: receipt?.status === 'success' ? 'success' : receipt?.status === 'reverted' ? 'failed' : 'unknown',
+        timestamp: isoTimestamp(matchingBlock?.timestamp),
+        status: matchingReceipt?.status === 'success' ? 'success' : matchingReceipt?.status === 'reverted' ? 'failed' : 'unknown',
       },
       dataSource: 'Alchemy',
       network: 'Ethereum Mainnet',
       verifiedAt: new Date().toISOString(),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof TransactionNotFoundError) return response({ error: 'Transaction not found on Ethereum Mainnet.' }, 404);
     // viem exceptions may embed the credential-bearing provider URL.
     console.error('Ethereum transaction retrieval failed.', { operation: 'transaction_lookup' });
     return response({ error: 'The Ethereum data service could not retrieve this transaction.' }, 502);

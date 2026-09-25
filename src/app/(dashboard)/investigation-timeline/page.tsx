@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { TimelineEventCard } from '@/components/timeline-event-card';
+import { TransactionLink } from '@/components/transaction-link';
 import { useEffect, useMemo, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
 import { buildInvestigationTimeline, linkedReportIds, orderTimeline, TIMELINE_DISCLAIMER, TIMELINE_FILTERS, type TimelineCase, type TimelineEvent, type TimelineFilter } from '@/lib/investigation-timeline';
@@ -113,8 +115,8 @@ function TimelineWorkspace({ record }: { record: TimelineCase }) {
       <section className="panel min-w-0 p-5" aria-label="Chronological timeline" aria-busy={loading}>
         <h2 className="text-lg font-semibold text-white">Chronological evidence</h2><p className="mt-2 text-xs text-slate-400">All times displayed in UTC. {total} events match this filter.</p>
         {!total && <p className="py-6 text-sm text-slate-400">No evidence events match this category.</p>}
-        <ol className="mt-5 space-y-3 border-l border-cyan-400/25 pl-4">{shownDated.map(event => <EventCard key={event.id} event={event} selected={event.id === selectedId} onSelect={selectEvent} />)}</ol>
-        {ordered.undated.length > 0 && <><h3 className="mt-8 text-sm font-semibold text-amber-200">Timestamp unavailable</h3><p className="mt-2 text-xs text-slate-400">These records have no reliable single event time and are not placed in the chronology.</p><ol className="mt-4 space-y-3">{shownUndated.map(event => <EventCard key={event.id} event={event} selected={event.id === selectedId} onSelect={selectEvent} />)}</ol></>}
+        <ol className="mt-5 space-y-3 border-l border-cyan-400/25 pl-4">{shownDated.map(event => <TimelineEventCard key={event.id} caseId={record.id} event={event} selected={event.id === selectedId} onSelect={selectEvent} />)}</ol>
+        {ordered.undated.length > 0 && <><h3 className="mt-8 text-sm font-semibold text-amber-200">Timestamp unavailable</h3><p className="mt-2 text-xs text-slate-400">These records have no reliable single event time and are not placed in the chronology.</p><ol className="mt-4 space-y-3">{shownUndated.map(event => <TimelineEventCard key={event.id} caseId={record.id} event={event} selected={event.id === selectedId} onSelect={selectEvent} />)}</ol></>}
         {total > limit && <button className={`${buttonClass} mt-5`} onClick={() => setLimit(value => value + 100)}>Show more evidence ({total - limit} remaining)</button>}
       </section>
       <aside className="panel min-w-0 p-5 xl:sticky xl:top-5" aria-label="Evidence Inspector">
@@ -122,21 +124,10 @@ function TimelineWorkspace({ record }: { record: TimelineCase }) {
         {!selected ? <p className="mt-4 text-sm text-slate-400">Select a timeline event to inspect its source records.</p> : <div className="mt-4 space-y-4 text-sm">
           <h3 className="text-cyan-200">{selected.type}</h3><p>{selected.description}</p><p className="text-xs text-slate-400">{selected.timestampMeaning}: {displayTime(selected.timestamp)}</p><p className="text-xs">Source: {selected.source}</p>
           {selected.addresses.map((address, index) => { const attribution = timeline.attributions.find(item => item.address === address.toLowerCase()); return <div key={`${address}:${index}`} className="break-all text-xs"><p className="font-mono">{address}</p><p className="mt-1 text-slate-400">{attribution?.status || 'UNATTRIBUTED / UNKNOWN'}{attribution?.status === 'VERIFIED' ? ` · ${attribution.attribution}` : ''}</p></div>; })}
-          {selected.hashes.length > 0 && <details open><summary className="text-xs text-cyan-200">Supporting transaction hashes ({selected.hashes.length})</summary>{selected.hashes.map(hash => <p key={hash} className="mt-2 break-all font-mono text-xs">{hash}</p>)}</details>}
+          {selected.hashes.length > 0 && <details open><summary className="text-xs text-cyan-200">Supporting transaction hashes ({selected.hashes.length})</summary>{selected.hashes.map(hash => <p key={hash} className="mt-2 break-all font-mono text-xs"><TransactionLink hash={hash} caseId={record.id} /></p>)}</details>}
           <details open><summary className="cursor-pointer text-cyan-200">Underlying evidence (exact available fields)</summary><pre className="mt-3 max-h-[36rem] overflow-auto whitespace-pre-wrap break-all rounded-xl bg-slate-950 p-3 text-xs leading-6">{JSON.stringify(selected.details, null, 2)}</pre></details>
         </div>}
       </aside>
     </div>
   </>;
-}
-
-function EventCard({ event, selected, onSelect }: { event: TimelineEvent; selected: boolean; onSelect: (event: TimelineEvent) => void }) {
-  return <li><button onClick={() => onSelect(event)} aria-pressed={selected} className={`w-full space-y-2 rounded-xl border p-4 text-left hover:bg-cyan-400/5 ${selected ? 'border-cyan-300 bg-cyan-400/10' : 'border-slate-700 bg-slate-950/40'}`}>
-    <span className="inline-block rounded-full border border-cyan-400/25 px-2 py-1 text-xs text-cyan-200">{event.type}</span><span className="block text-xs text-slate-400">{displayTime(event.timestamp)} · {event.timestampMeaning}</span>
-    <span className="block text-sm text-slate-200">{event.description}</span>
-    {event.addresses.map((address, index) => <span key={`${address}:${index}`} className="block break-all font-mono text-xs text-slate-300">{address}</span>)}
-    {event.valueWei !== undefined && <span className="block break-all text-xs text-cyan-100">Observed value: {event.valueWei} wei (ETH)</span>}
-    {event.category === 'Transfers' && <span className="block break-all font-mono text-xs text-slate-400">Transaction: {event.hashes[0]}</span>}
-    <span className="block text-xs text-slate-500">{event.network ? `${event.network} · ` : ''}{event.source}</span>
-  </button></li>;
 }

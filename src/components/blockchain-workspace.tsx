@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { TransactionLink } from '@/components/transaction-link';
 import { useMemo, useState, type ReactNode } from 'react';
 import { WalletAddress } from './wallet-address';
 import { directionFor, formatEth, type WalletAnalysis, type WalletTransaction } from '@/lib/wallet-analysis';
@@ -71,7 +72,7 @@ export function BlockchainWorkspace({ address, transactions, analysis }: { addre
     </Panel>
     <Panel title="Transaction activity">
       <label className="text-sm text-slate-300">Direction <select className="filter-control ml-2" value={filter} onChange={event => { setFilter(event.target.value); setPage(0); }}><option value="all">All</option><option value="incoming">Incoming</option><option value="outgoing">Outgoing</option><option value="self">Self</option></select></label>
-      <div className="mt-4 overflow-x-auto"><table className="technical-table min-w-[1050px]"><thead><tr><th>Timestamp (UTC)</th><th>Hash</th><th>Direction</th><th>From</th><th>To</th><th>ETH value</th><th>Receipt status</th></tr></thead><tbody>{filtered.slice(currentPage * 10, currentPage * 10 + 10).map(transaction => <tr key={transaction.hash}><td>{date(transaction.timestamp)}</td><td><a title={transaction.hash} className="font-mono text-cyan-200" href={`https://etherscan.io/tx/${transaction.hash}`} target="_blank" rel="noreferrer">{transaction.hash.slice(0, 10)}…{transaction.hash.slice(-6)}</a></td><td>{directionFor(transaction, address)}</td><td><WalletAddress address={transaction.from} /></td><td>{transaction.to ? <WalletAddress address={transaction.to} /> : 'Unavailable / creation'}</td><td>{formatEth(BigInt(transaction.value))}</td><td>{transaction.status === 'unknown' ? 'Unverified' : transaction.status}</td></tr>)}</tbody></table></div>
+      <div className="mt-4 overflow-x-auto"><table className="technical-table min-w-[1050px]"><thead><tr><th>Timestamp (UTC)</th><th>Hash</th><th>Direction</th><th>From</th><th>To</th><th>ETH value</th><th>Receipt status</th></tr></thead><tbody>{filtered.slice(currentPage * 10, currentPage * 10 + 10).map(transaction => <tr key={transaction.hash}><td>{date(transaction.timestamp)}</td><td><TransactionLink hash={transaction.hash} /></td><td>{directionFor(transaction, address)}</td><td><WalletAddress address={transaction.from} /></td><td>{transaction.to ? <WalletAddress address={transaction.to} /> : 'Unavailable / creation'}</td><td>{formatEth(BigInt(transaction.value))}</td><td>{transaction.status === 'unknown' ? 'Unverified' : transaction.status}</td></tr>)}</tbody></table></div>
       {!filtered.length && <p className="py-5 text-sm text-slate-400">No retrieved transfers match this view.</p>}
       <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400"><button className="button-secondary" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{filtered.length} transfers · Page {currentPage + 1} of {pages}</span><button className="button-secondary" disabled={currentPage + 1 >= pages} onClick={() => setPage(currentPage + 1)}>Next</button></div>
     </Panel>
