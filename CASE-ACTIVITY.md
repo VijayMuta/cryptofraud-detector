@@ -41,6 +41,8 @@ read/write. No service credentials enter browser modules.
 | EVIDENCE_INTEGRITY_MISMATCH | Explicit Verify Integrity produces a valid MISMATCH | Browser-reported comparison; changes may be legitimate |
 | FREEZE_HOLD_PACKAGE_PREPARED | Validated transition to PREPARED FOR AUTHORIZED ESCALATION creates the prepared snapshot | Browser-reported internal preparation only |
 | CASE_NOTE_CREATED | Database AFTER INSERT on case_notes (requires supabase-case-notes.sql) | Database change; note UUID only, no note text |
+| EVIDENCE_BOOKMARK_CREATED | Database AFTER INSERT on case_evidence_bookmarks (requires supabase-case-bookmarks.sql) | Database change; bookmark UUID, transaction hash and network only |
+| EVIDENCE_BOOKMARK_REMOVED | Database AFTER DELETE on case_evidence_bookmarks | Database change; bookmark UUID, transaction hash and network only |
 
 Automatic hashing, component rendering, routine case reads, failed retrievals,
 invalid hash comparisons, and background analysis fetches are not events.
@@ -125,7 +127,7 @@ npm.cmd run typecheck
 npm.cmd run build
 ```
 
-Local validation: all 112 automated tests passed, including 11 focused activity
+Local validation: all 118 automated tests passed, including 11 focused activity
 tests; the standalone TypeScript check passed. No existing tests were removed
 or weakened. No live database migration or provider smoke script was run.
 

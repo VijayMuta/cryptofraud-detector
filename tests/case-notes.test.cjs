@@ -90,7 +90,10 @@ test('browser cannot fabricate CASE_NOTE_CREATED through the generic activity en
 
 test('migration preserves activity types, restricts notes to owner reads/server inserts, and atomically audits IDs only', () => {
   const sql = fs.readFileSync('supabase-case-notes.sql', 'utf8');
-  for (const eventType of Object.keys(ACTIVITY_DEFINITIONS)) assert.ok(sql.includes("'" + eventType + "'"));
+  for (const eventType of Object.keys(ACTIVITY_DEFINITIONS)) {
+    const migration = eventType.startsWith('EVIDENCE_BOOKMARK_') ? fs.readFileSync('supabase-case-bookmarks.sql', 'utf8') : sql;
+    assert.ok(migration.includes("'" + eventType + "'"));
+  }
   assert.match(sql, /alter table public.case_notes enable row level security/);
   assert.match(sql, /revoke all on public.case_notes from public, anon, authenticated/);
   assert.match(sql, /c.id = case_id and c.created_by = auth.uid\(\)/);

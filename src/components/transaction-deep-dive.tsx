@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { SaveTransactionBookmark } from '@/components/case-bookmarks';
 import { useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
 import { recordCaseActivity } from '@/lib/case-activity-client';
@@ -81,6 +82,7 @@ export function TransactionDeepDive({ hash, caseId }: { hash: string; caseId: st
       <EvidenceField label="Blockchain data source" value={evidence.dataSource} />
       <EvidenceField label="Evidence retrieved at (not blockchain time)" value={evidence.retrievedAt} />
     </dl><p className="text-xs leading-6 text-slate-400">Transaction value is the native ETH value field. A failed or unverified transaction does not establish a completed transfer. A missing recipient, timestamp or block remains unavailable; no replacement value is inferred. Token transfers, internal execution effects and complete wallet history are not included.</p></section>}
+    {!loading && !error && evidence?.hash === hash.toLowerCase() && normalizeAttributionNetwork(evidence.network || "") === "eip155:1" && <SaveTransactionBookmark key={`${hash}:${caseId}`} hash={evidence.hash} initialCaseId={caseId} />}
     <section className="panel space-y-4 p-5"><h2 className="text-lg font-semibold text-white">Investigation Context</h2><p className="eyebrow">Private case records / deterministic matching</p>
       {caseLoading ? <p role="status" className="text-sm">Loading case context…</p> : caseError ? <p role="status" className="text-sm text-amber-200">{caseError} <button className="button-secondary" onClick={() => setAttempt(value => value + 1)}>Retry</button></p> : !record ? <p className="text-sm text-slate-400">No case context available. Open a transaction from a selected case’s Investigation Timeline or Fund Flow Graph to include its context.</p> : <><p className="text-sm">{record.case_code} · {record.title}</p><p className="text-xs text-slate-400">Matches reflect current Ethereum case wallet records, not wallet ownership or case membership at the blockchain transaction time.</p><dl className="grid gap-4 sm:grid-cols-2"><EvidenceField label="Sender is a case wallet" value={membership(context?.senderIsCaseWallet)} /><EvidenceField label="Recipient is a case wallet" value={membership(context?.recipientIsCaseWallet)} /><EvidenceField label="Both addresses are case wallets" value={context?.senderIsCaseWallet === null || context?.recipientIsCaseWallet === null || !context ? 'UNAVAILABLE' : context.senderIsCaseWallet && context.recipientIsCaseWallet ? 'Yes' : 'No'} /><EvidenceField label="Observed transfer between distinct investigated wallets" value={context?.betweenInvestigatedWallets ? 'Supported by successful execution, positive ETH value and two case wallet matches' : 'Not established by the available evidence'} /></dl></>}
       <p className="text-xs leading-6 text-amber-100">{TRANSACTION_CONTEXT_NOTICE}</p>

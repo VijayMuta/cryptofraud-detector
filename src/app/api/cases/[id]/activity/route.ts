@@ -40,7 +40,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       const text = await request.text();
       if (text.length > 4096) throw new Error();
       body = JSON.parse(text);
-      if (!body || Object.keys(body).sort().join(',') !== 'eventType,metadata,operationId' || !isUuid(body.operationId) || !isActivityType(body.eventType) || ['CASE_CREATED', 'CASE_STATUS_CHANGED', 'WALLET_ADDED', 'WALLET_REMOVED', 'CASE_NOTE_CREATED'].includes(body.eventType)) throw new Error();
+      if (!body || Object.keys(body).sort().join(',') !== 'eventType,metadata,operationId' || !isUuid(body.operationId) || !isActivityType(body.eventType) || ['CASE_CREATED', 'CASE_STATUS_CHANGED', 'WALLET_ADDED', 'WALLET_REMOVED', 'CASE_NOTE_CREATED', 'EVIDENCE_BOOKMARK_CREATED', 'EVIDENCE_BOOKMARK_REMOVED'].includes(body.eventType)) throw new Error();
       body.metadata = validateActivityMetadata(body.eventType, body.metadata);
     } catch { return reply({ error: 'Invalid case activity event.' }, 400); }
     const { error } = await ctx.admin!.from('case_activity_events').upsert({

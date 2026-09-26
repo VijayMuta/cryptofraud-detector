@@ -2,6 +2,7 @@
 
 import { WalletAddress } from '@/components/wallet-address';
 import { CaseNotes } from '@/components/case-notes';
+import { CaseBookmarks } from '@/components/case-bookmarks';
 
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
@@ -251,6 +252,7 @@ export default function CaseDetails({ params }: { params: { id: string } }) {
         {caseRecord.wallets.length === 0 ? <p className="mt-5 rounded border border-dashed border-slate-700 bg-slate-900/30 p-5 text-center text-sm text-slate-500">No suspect wallets are associated with this private case yet.</p> : <div className="mt-4 divide-y divide-slate-800 rounded border border-slate-800">{caseRecord.wallets.map((wallet) => <div key={wallet.id} className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/20 p-4"><div className="min-w-0"><WalletAddress address={wallet.address} /><p className="mt-1 text-xs text-slate-500">Added {formatDate(wallet.added_at)} UTC</p></div><button onClick={() => void removeWallet(wallet.id)} disabled={removingWalletId === wallet.id} className="inline-flex items-center gap-1 rounded border border-red-400/20 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-400/10 disabled:opacity-60">{removingWalletId === wallet.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Remove</button></div>)}</div>}
       </section>
 
+      <CaseBookmarks key={`bookmarks:${caseRecord.id}`} caseId={caseRecord.id} />
       <CaseNotes key={caseRecord.id} caseId={caseRecord.id} />
 
       <section className="evidence-note"><div className="flex items-center gap-2"><CalendarClock size={15} /><span>Case data is private to your account. Blockchain addresses and transactions remain public on Ethereum; this application stores only your private case metadata and saved comparison evidence.</span></div></section>

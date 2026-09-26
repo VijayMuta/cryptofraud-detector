@@ -19,6 +19,8 @@ const fixtures = {
   EVIDENCE_INTEGRITY_MISMATCH: { packageVersion: 'chaintrace-evidence-v1', packageType: 'case-report', fingerprint: 'd'.repeat(64) },
   FREEZE_HOLD_PACKAGE_PREPARED: { completedAt },
   CASE_NOTE_CREATED: { noteId: operationId },
+  EVIDENCE_BOOKMARK_CREATED: { bookmarkId: operationId, transactionHash: '0x' + 'b'.repeat(64), network: 'ethereum' },
+  EVIDENCE_BOOKMARK_REMOVED: { bookmarkId: operationId, transactionHash: '0x' + 'b'.repeat(64), network: 'ethereum' },
 };
 test('all supported events validate exact safe metadata without mutation', () => {
   assert.deepEqual(Object.keys(fixtures), Object.keys(ACTIVITY_DEFINITIONS));

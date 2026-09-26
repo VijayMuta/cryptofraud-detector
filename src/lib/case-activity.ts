@@ -12,6 +12,8 @@ export const ACTIVITY_DEFINITIONS = {
   EVIDENCE_INTEGRITY_MISMATCH: ['Evidence integrity comparison: MISMATCH. Content changes may be legitimate.', 'Evidence', 'evidence-integrity'],
   FREEZE_HOLD_PACKAGE_PREPARED: ['Freeze/Hold evidence package prepared in CHAINTRACE.', 'Freeze/Hold', 'freeze-hold'],
   CASE_NOTE_CREATED: ['Investigator note added to case.', 'Case', 'case-notes'],
+  EVIDENCE_BOOKMARK_CREATED: ['Transaction evidence bookmarked in case.', 'Evidence', 'case-bookmarks'],
+  EVIDENCE_BOOKMARK_REMOVED: ['Transaction evidence bookmark removed from case.', 'Evidence', 'case-bookmarks'],
 } as const;
 export type ActivityType = keyof typeof ACTIVITY_DEFINITIONS;
 export type ActivityMetadata = Record<string, string | number>;
@@ -23,6 +25,7 @@ export const isUuid = (value: unknown): value is string => typeof value === 'str
 export function isActivityType(value: unknown): value is ActivityType { return typeof value === 'string' && Object.hasOwn(ACTIVITY_DEFINITIONS, value); }
 const rules: Record<string, (value: unknown) => boolean> = {
   noteId: isUuid,
+  bookmarkId: isUuid,
   network: v => v === 'ethereum',
   walletAddress: v => typeof v === 'string' && /^0x[0-9a-f]{40}$/i.test(v),
   transactionHash: v => typeof v === 'string' && /^0x[0-9a-f]{64}$/i.test(v),
@@ -47,6 +50,8 @@ const fields: Record<ActivityType, string[]> = {
   EVIDENCE_INTEGRITY_MISMATCH: ['packageVersion', 'packageType', 'fingerprint'],
   FREEZE_HOLD_PACKAGE_PREPARED: ['completedAt'],
   CASE_NOTE_CREATED: ['noteId'],
+  EVIDENCE_BOOKMARK_CREATED: ['bookmarkId', 'transactionHash', 'network'],
+  EVIDENCE_BOOKMARK_REMOVED: ['bookmarkId', 'transactionHash', 'network'],
 };
 /** Exact per-event scalar allowlists: no arbitrary text, nested responses or credentials. */
 export function validateActivityMetadata(type: unknown, value: unknown): ActivityMetadata {
