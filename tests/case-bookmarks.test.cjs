@@ -104,7 +104,10 @@ test('generic activity API rejects both database-only bookmark event types', asy
 });
 test('migration retains every activity type, denies browser writes and defines atomic minimal audit triggers', () => {
   const sql = fs.readFileSync('supabase-case-bookmarks.sql', 'utf8');
-  for (const type of Object.keys(ACTIVITY_DEFINITIONS)) assert.ok(sql.includes("'" + type + "'"));
+  for (const type of Object.keys(ACTIVITY_DEFINITIONS)) {
+    const migration = type.startsWith('EVIDENCE_TAG_') ? fs.readFileSync('supabase-evidence-tags.sql', 'utf8') : sql;
+    assert.ok(migration.includes("'" + type + "'"));
+  }
   assert.match(sql, /unique\(case_id, network, transaction_hash\)/);
   assert.match(sql, /transaction_hash ~ '\^0x\[0-9a-f\]\{64\}\$'/);
   assert.match(sql, /enable row level security/);

@@ -1,5 +1,5 @@
 export const BOOKMARK_LABELS = ['Review', 'Key transfer', 'Follow up'] as const;
-export type CaseBookmark = { id: string; case_id: string; created_by: string; transaction_hash: string; network: 'ethereum'; label: string | null; created_at: string };
+export type CaseBookmark = { id: string; case_id: string; created_by: string; transaction_hash: string; network: 'ethereum'; label: string | null; created_at: string; tags?: import('@/lib/evidence-tags').EvidenceTagAssignment[] };
 export const bookmarkFields = 'id,case_id,created_by,transaction_hash,network,label,created_at';
 export function validateBookmark(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new Error('Invalid bookmark.');

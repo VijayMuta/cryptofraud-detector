@@ -1,4 +1,5 @@
 import { canonicalSerialize, type IntegrityRecord, type VerificationResult } from '@/lib/evidence-integrity';
+import { isEvidenceTagId } from '@/lib/evidence-tags';
 
 export const ACTIVITY_DEFINITIONS = {
   CASE_CREATED: ['Case created.', 'Case', 'case-management'],
@@ -14,6 +15,8 @@ export const ACTIVITY_DEFINITIONS = {
   CASE_NOTE_CREATED: ['Investigator note added to case.', 'Case', 'case-notes'],
   EVIDENCE_BOOKMARK_CREATED: ['Transaction evidence bookmarked in case.', 'Evidence', 'case-bookmarks'],
   EVIDENCE_BOOKMARK_REMOVED: ['Transaction evidence bookmark removed from case.', 'Evidence', 'case-bookmarks'],
+  EVIDENCE_TAG_ADDED: ['Investigator classification added to saved evidence.', 'Evidence', 'evidence-tags'],
+  EVIDENCE_TAG_REMOVED: ['Investigator classification removed from saved evidence.', 'Evidence', 'evidence-tags'],
 } as const;
 export type ActivityType = keyof typeof ACTIVITY_DEFINITIONS;
 export type ActivityMetadata = Record<string, string | number>;
@@ -26,6 +29,7 @@ export function isActivityType(value: unknown): value is ActivityType { return t
 const rules: Record<string, (value: unknown) => boolean> = {
   noteId: isUuid,
   bookmarkId: isUuid,
+  tagId: isEvidenceTagId,
   network: v => v === 'ethereum',
   walletAddress: v => typeof v === 'string' && /^0x[0-9a-f]{40}$/i.test(v),
   transactionHash: v => typeof v === 'string' && /^0x[0-9a-f]{64}$/i.test(v),
@@ -52,6 +56,8 @@ const fields: Record<ActivityType, string[]> = {
   CASE_NOTE_CREATED: ['noteId'],
   EVIDENCE_BOOKMARK_CREATED: ['bookmarkId', 'transactionHash', 'network'],
   EVIDENCE_BOOKMARK_REMOVED: ['bookmarkId', 'transactionHash', 'network'],
+  EVIDENCE_TAG_ADDED: ['bookmarkId', 'tagId'],
+  EVIDENCE_TAG_REMOVED: ['bookmarkId', 'tagId'],
 };
 /** Exact per-event scalar allowlists: no arbitrary text, nested responses or credentials. */
 export function validateActivityMetadata(type: unknown, value: unknown): ActivityMetadata {

@@ -43,6 +43,13 @@ read/write. No service credentials enter browser modules.
 | CASE_NOTE_CREATED | Database AFTER INSERT on case_notes (requires supabase-case-notes.sql) | Database change; note UUID only, no note text |
 | EVIDENCE_BOOKMARK_CREATED | Database AFTER INSERT on case_evidence_bookmarks (requires supabase-case-bookmarks.sql) | Database change; bookmark UUID, transaction hash and network only |
 | EVIDENCE_BOOKMARK_REMOVED | Database AFTER DELETE on case_evidence_bookmarks | Database change; bookmark UUID, transaction hash and network only |
+| EVIDENCE_TAG_ADDED | Database AFTER INSERT on case_evidence_tags (requires supabase-evidence-tags.sql) | Database change; bookmark UUID and controlled tag identifier only |
+| EVIDENCE_TAG_REMOVED | Database AFTER DELETE on case_evidence_tags | Database change; bookmark UUID and controlled tag identifier only |
+
+Tag mutations are atomic with their audit event. Both tag event types are rejected
+by the browser-reported activity API. See [Evidence Tags](EVIDENCE-TAGS.md) for
+migration order, cascade behavior and manual validation. Do not rerun older
+activity/notes/bookmarks migrations after the evidence tags migration.
 
 Automatic hashing, component rendering, routine case reads, failed retrievals,
 invalid hash comparisons, and background analysis fetches are not events.

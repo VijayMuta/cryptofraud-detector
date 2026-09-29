@@ -1,5 +1,10 @@
 # Case Evidence Bookmarks
 
+Saved Evidence now supports controlled investigator classifications and filtering.
+See [Evidence Tags](EVIDENCE-TAGS.md) for controls, security, and the new required
+`supabase-evidence-tags.sql` migration, applied after the bookmarks migration.
+Do not rerun this older bookmarks migration after installing evidence tags.
+
 Transaction Deep Dive shows **Save to case** after it retrieves a matching
 Ethereum Mainnet transaction. Select one of your cases, optionally choose
 Review, Key transfer or Follow up, and click **Bookmark evidence**. Existing
