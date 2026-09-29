@@ -125,7 +125,10 @@ test('generic activity endpoint rejects fabricated bookmark note events without 
 
 test('migration enforces composite membership, owner RLS, author checks, append-only access and atomic identifier-only audit', () => {
   const sql = fs.readFileSync('supabase-evidence-bookmark-notes.sql', 'utf8');
-  for (const type of Object.keys(ACTIVITY_DEFINITIONS)) assert.ok(sql.includes("'" + type + "'"));
+  for (const type of Object.keys(ACTIVITY_DEFINITIONS)) {
+    const migration = type === 'EVIDENCE_REVIEW_STATUS_CHANGED' ? fs.readFileSync('supabase-evidence-review-status.sql', 'utf8') : sql;
+    assert.ok(migration.includes("'" + type + "'"));
+  }
   assert.match(sql, /unique \(id, case_id\)/);
   assert.match(sql, /foreign key \(bookmark_id, case_id\) references public.case_evidence_bookmarks\(id, case_id\) on delete cascade/);
   assert.match(sql, /case_id uuid not null references public.investigation_cases\(id\) on delete cascade/);

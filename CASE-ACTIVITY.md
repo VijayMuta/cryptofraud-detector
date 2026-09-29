@@ -46,6 +46,13 @@ read/write. No service credentials enter browser modules.
 | EVIDENCE_TAG_ADDED | Database AFTER INSERT on case_evidence_tags (requires supabase-evidence-tags.sql) | Database change; bookmark UUID and controlled tag identifier only |
 | EVIDENCE_TAG_REMOVED | Database AFTER DELETE on case_evidence_tags | Database change; bookmark UUID and controlled tag identifier only |
 | EVIDENCE_BOOKMARK_NOTE_CREATED | Database AFTER INSERT on case_evidence_bookmark_notes | Database change; bookmark UUID and note UUID only, never note text |
+| EVIDENCE_REVIEW_STATUS_CHANGED | Database AFTER INSERT/UPDATE on case_evidence_review_statuses, only for actual transitions | Database change; bookmark UUID and controlled previous/current review status only |
+
+Review status changes are atomic with their audit events; unchanged statuses
+produce no event. Generic activity POST rejects this database-only event.
+Review status is an investigator workflow state, not proof of fraud. See
+[Evidence Review Status](EVIDENCE-REVIEW-STATUS.md) for the new migration after
+Bookmark Notes, concurrency behavior and verification instructions.
 
 Bookmark note creation is atomic with its audit event, and the generic activity
 POST endpoint rejects fabricated bookmark-note events. See
@@ -140,7 +147,7 @@ npm.cmd run typecheck
 npm.cmd run build
 ```
 
-Local validation: all 118 automated tests passed, including 11 focused activity
+Local validation with Evidence Review Status: all 139 automated tests passed, including 11 focused activity
 tests; the standalone TypeScript check passed. No existing tests were removed
 or weakened. No live database migration or provider smoke script was run.
 

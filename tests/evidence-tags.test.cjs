@@ -130,7 +130,7 @@ test('migration enforces exact tags, uniqueness, cascade, RLS and atomic safe au
   const allowed = sql.match(/tag_id text not null check \(tag_id in \(([\s\S]*?)\)\)/)[1].match(/'[^']+'/g).map(s => s.slice(1, -1));
   assert.deepEqual(allowed, Object.keys(EVIDENCE_TAGS));
   for (const type of Object.keys(ACTIVITY_DEFINITIONS)) {
-    const migration = type === 'EVIDENCE_BOOKMARK_NOTE_CREATED' ? fs.readFileSync('supabase-evidence-bookmark-notes.sql', 'utf8') : sql;
+    const migration = type === 'EVIDENCE_REVIEW_STATUS_CHANGED' ? fs.readFileSync('supabase-evidence-review-status.sql', 'utf8') : type === 'EVIDENCE_BOOKMARK_NOTE_CREATED' ? fs.readFileSync('supabase-evidence-bookmark-notes.sql', 'utf8') : sql;
     assert.ok(migration.includes("'" + type + "'"));
   }
   assert.match(sql, /primary key \(bookmark_id, tag_id\)/);

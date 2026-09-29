@@ -1,5 +1,10 @@
 # Case Evidence Bookmarks
 
+Each bookmark now shows [Case Evidence Review Status](EVIDENCE-REVIEW-STATUS.md):
+Unreviewed, In Review, Verified, or Needs Follow-up. This is an investigator
+workflow state, not proof of fraud. Install the new review-status migration
+after Bookmark Notes; existing migrations must not be rerun.
+
 Each saved bookmark also supports [private bookmark notes](EVIDENCE-BOOKMARK-NOTES.md).
 Expand **Private bookmark notes** to read/add short observations. This requires
 the new `supabase-evidence-bookmark-notes.sql` migration after Evidence Tags.
@@ -97,7 +102,7 @@ the full suite with `node --test tests/*.test.cjs`, then `npm.cmd run typecheck`
 and `npm.cmd run build`. Schema/policy/atomic-trigger tests inspect migration SQL;
 API tests mock persistence and do not execute PostgreSQL.
 
-Local validation passed: 23 focused bookmark/activity/notes tests, 118 full-suite
+Local validation with Evidence Review Status passed: 23 focused bookmark/activity/notes tests, 139 full-suite
 tests, and the standalone TypeScript check. No database migration was applied.
 
 After manually installing the migration, verify with two accounts that a case's

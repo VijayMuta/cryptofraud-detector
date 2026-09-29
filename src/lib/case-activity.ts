@@ -1,5 +1,6 @@
 import { canonicalSerialize, type IntegrityRecord, type VerificationResult } from '@/lib/evidence-integrity';
 import { isEvidenceTagId } from '@/lib/evidence-tags';
+import { isEvidenceReviewStatus } from '@/lib/evidence-review-status';
 
 export const ACTIVITY_DEFINITIONS = {
   CASE_CREATED: ['Case created.', 'Case', 'case-management'],
@@ -18,6 +19,7 @@ export const ACTIVITY_DEFINITIONS = {
   EVIDENCE_TAG_ADDED: ['Investigator classification added to saved evidence.', 'Evidence', 'evidence-tags'],
   EVIDENCE_TAG_REMOVED: ['Investigator classification removed from saved evidence.', 'Evidence', 'evidence-tags'],
   EVIDENCE_BOOKMARK_NOTE_CREATED: ['Private investigator note added to saved evidence.', 'Evidence', 'bookmark-notes'],
+  EVIDENCE_REVIEW_STATUS_CHANGED: ['Investigator review status changed; this is not proof of fraud.', 'Evidence', 'evidence-review'],
 } as const;
 export type ActivityType = keyof typeof ACTIVITY_DEFINITIONS;
 export type ActivityMetadata = Record<string, string | number>;
@@ -60,6 +62,7 @@ const fields: Record<ActivityType, string[]> = {
   EVIDENCE_TAG_ADDED: ['bookmarkId', 'tagId'],
   EVIDENCE_TAG_REMOVED: ['bookmarkId', 'tagId'],
   EVIDENCE_BOOKMARK_NOTE_CREATED: ['bookmarkId', 'noteId'],
+  EVIDENCE_REVIEW_STATUS_CHANGED: ['bookmarkId', 'previousStatus', 'status'],
 };
 /** Exact per-event scalar allowlists: no arbitrary text, nested responses or credentials. */
 export function validateActivityMetadata(type: unknown, value: unknown): ActivityMetadata {
@@ -69,11 +72,12 @@ export function validateActivityMetadata(type: unknown, value: unknown): Activit
   const result: ActivityMetadata = {};
   for (const key of allowed) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable || !['string', 'number'].includes(typeof descriptor.value) || !rules[key](descriptor.value)) throw new Error('Invalid activity field.');
+    const rule = type === 'EVIDENCE_REVIEW_STATUS_CHANGED' && (key === 'status' || key === 'previousStatus') ? isEvidenceReviewStatus : rules[key];
+    if (!descriptor || !('value' in descriptor) || !descriptor.enumerable || !['string', 'number'].includes(typeof descriptor.value) || !rule(descriptor.value)) throw new Error('Invalid activity field.');
     result[key] = descriptor.value;
   }
   if (type === 'BLOCKCHAIN_EVIDENCE_REFRESHED' && Number(result.loadedWallets) > Number(result.requestedWallets)) throw new Error('Invalid refresh counts.');
-  if (type === 'CASE_STATUS_CHANGED' && result.status === result.previousStatus) throw new Error('Status did not change.');
+  if ((type === 'CASE_STATUS_CHANGED' || type === 'EVIDENCE_REVIEW_STATUS_CHANGED') && result.status === result.previousStatus) throw new Error('Status did not change.');
   return result;
 }
 export function orderActivity(events: CaseActivity[]) { return [...events].sort((a, b) => b.event_timestamp.localeCompare(a.event_timestamp) || b.id.localeCompare(a.id)); }
