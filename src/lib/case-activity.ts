@@ -17,6 +17,7 @@ export const ACTIVITY_DEFINITIONS = {
   EVIDENCE_BOOKMARK_REMOVED: ['Transaction evidence bookmark removed from case.', 'Evidence', 'case-bookmarks'],
   EVIDENCE_TAG_ADDED: ['Investigator classification added to saved evidence.', 'Evidence', 'evidence-tags'],
   EVIDENCE_TAG_REMOVED: ['Investigator classification removed from saved evidence.', 'Evidence', 'evidence-tags'],
+  EVIDENCE_BOOKMARK_NOTE_CREATED: ['Private investigator note added to saved evidence.', 'Evidence', 'bookmark-notes'],
 } as const;
 export type ActivityType = keyof typeof ACTIVITY_DEFINITIONS;
 export type ActivityMetadata = Record<string, string | number>;
@@ -58,6 +59,7 @@ const fields: Record<ActivityType, string[]> = {
   EVIDENCE_BOOKMARK_REMOVED: ['bookmarkId', 'transactionHash', 'network'],
   EVIDENCE_TAG_ADDED: ['bookmarkId', 'tagId'],
   EVIDENCE_TAG_REMOVED: ['bookmarkId', 'tagId'],
+  EVIDENCE_BOOKMARK_NOTE_CREATED: ['bookmarkId', 'noteId'],
 };
 /** Exact per-event scalar allowlists: no arbitrary text, nested responses or credentials. */
 export function validateActivityMetadata(type: unknown, value: unknown): ActivityMetadata {

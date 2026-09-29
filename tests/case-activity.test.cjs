@@ -23,6 +23,7 @@ const fixtures = {
   EVIDENCE_BOOKMARK_REMOVED: { bookmarkId: operationId, transactionHash: '0x' + 'b'.repeat(64), network: 'ethereum' },
   EVIDENCE_TAG_ADDED: { bookmarkId: operationId, tagId: 'exchange' },
   EVIDENCE_TAG_REMOVED: { bookmarkId: operationId, tagId: 'exchange' },
+  EVIDENCE_BOOKMARK_NOTE_CREATED: { bookmarkId: operationId, noteId: caseId },
 };
 test('all supported events validate exact safe metadata without mutation', () => {
   assert.deepEqual(Object.keys(fixtures), Object.keys(ACTIVITY_DEFINITIONS));

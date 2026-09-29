@@ -1,5 +1,10 @@
 # Case Evidence Bookmarks
 
+Each saved bookmark also supports [private bookmark notes](EVIDENCE-BOOKMARK-NOTES.md).
+Expand **Private bookmark notes** to read/add short observations. This requires
+the new `supabase-evidence-bookmark-notes.sql` migration after Evidence Tags.
+Removing a bookmark cascades its notes; prior case activity remains.
+
 Saved Evidence now supports controlled investigator classifications and filtering.
 See [Evidence Tags](EVIDENCE-TAGS.md) for controls, security, and the new required
 `supabase-evidence-tags.sql` migration, applied after the bookmarks migration.

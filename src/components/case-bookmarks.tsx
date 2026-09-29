@@ -5,6 +5,7 @@ import { authenticatedFetch } from '@/lib/client-api';
 import { BOOKMARK_LABELS, type CaseBookmark } from '@/lib/case-bookmarks';
 import { transactionDeepDiveUrl } from '@/lib/transaction-deep-dive';
 import { EVIDENCE_TAGS, type EvidenceTagId, type EvidenceTagAssignment } from '@/lib/evidence-tags';
+import { BookmarkNotes } from '@/components/evidence-bookmark-notes';
 
 export function BookmarkEntry({ bookmark, busy, onRemove, onTagChange }: { bookmark: CaseBookmark; busy: boolean; onRemove: () => void; onTagChange: (tagId: EvidenceTagId, remove: boolean) => Promise<boolean> }) {
   const [selected, setSelected] = useState<EvidenceTagId | ''>('');
@@ -29,6 +30,7 @@ export function BookmarkEntry({ bookmark, busy, onRemove, onTagChange }: { bookm
       <button type="button" className="button-secondary" disabled={busy || !selected || !available.includes(selected)} onClick={async () => { if (selected && await onTagChange(selected, false)) setSelected(''); }}>Add tag</button>
       <button type="button" className="button-secondary" disabled={busy} onClick={onRemove}>Remove bookmark</button>
     </div>
+    <BookmarkNotes key={`${bookmark.case_id}:${bookmark.id}`} caseId={bookmark.case_id} bookmarkId={bookmark.id} disabled={busy} />
   </li>;
 }
 
@@ -75,7 +77,7 @@ export function CaseBookmarks({ caseId }: { caseId: string }) {
     } finally { removing.current = false; if (active.current) setBusy(false); }
   }
   async function remove(bookmark: CaseBookmark) {
-    if (removing.current || !window.confirm('Remove this transaction bookmark from the case? Its activity history will remain.')) return;
+    if (removing.current || !window.confirm('Remove this transaction bookmark and its private notes from the case? Its activity history will remain.')) return;
     removing.current = true; setBusy(true); setError(''); setMessage('');
     try {
       await authenticatedFetch(`/api/cases/${encodeURIComponent(caseId)}/bookmarks?bookmarkId=${encodeURIComponent(bookmark.id)}`, { method: 'DELETE' });

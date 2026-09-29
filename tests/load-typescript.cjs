@@ -7,7 +7,8 @@ const ts = require('typescript');
 // Load the existing TypeScript with its Next alias, without adding dependencies.
 const cache = new Map();
 function load(relative) {
-  const file = path.resolve(__dirname, '..', relative);
+  const requested = path.resolve(__dirname, '..', relative);
+  const file = !fs.existsSync(requested) && requested.endsWith('.ts') ? requested + 'x' : requested;
   if (cache.has(file)) return cache.get(file).exports;
   const compiled = new Module(file, module);
   compiled.filename = file;
@@ -16,7 +17,7 @@ function load(relative) {
   compiled.require = name => name.startsWith('@/') ? load(`src/${name.slice(2)}.ts`) : originalRequire(name);
   cache.set(file, compiled);
   compiled._compile(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX },
   }).outputText, file);
   return compiled.exports;
 }
