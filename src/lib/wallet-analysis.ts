@@ -361,6 +361,7 @@ export function formatEth(valueWei: bigint | null) {
   const remainder = absoluteValue % base;
   const fraction = remainder.toString().padStart(18, '0').slice(0, 6).replace(/0+$/, '');
 
-  if (!fraction && remainder > ZERO_WEI) return `${sign}<0.000001 ETH`;
+  // Fractional dust must never hide a non-zero whole ETH amount.
+  if (whole === ZERO_WEI && !fraction && remainder > ZERO_WEI) return `${sign}<0.000001 ETH`;
   return `${sign}${whole}${fraction ? `.${fraction}` : ''} ETH`;
 }
