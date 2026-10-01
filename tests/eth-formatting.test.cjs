@@ -62,18 +62,11 @@ test('new monitoring descriptions preserve whole ETH without changing stored wei
   const { runWalletMonitor } = load('src/lib/monitoring.ts');
   let storedTransactions = [], storedAlerts = [];
   // In-memory persistence only; no provider or database is contacted.
-  const admin = { from(table) {
-    assert.ok(['monitor_transactions', 'monitor_alerts', 'wallet_monitors'].includes(table));
-    return {
-      upsert(rows) {
-        if (table === 'monitor_transactions') storedTransactions = rows;
-        else storedAlerts = rows;
-        return { select: async () => ({ error: null, data: table === 'monitor_transactions'
-          ? rows.map(row => ({ transaction_hash: row.transaction_hash }))
-          : rows.map((_, index) => ({ id: String(index) })) }) };
-      },
-      update() { return { eq: () => ({ error: null, in: async () => ({ error: null }) }) }; },
-    };
+  const admin = { async rpc(name, input) {
+    assert.equal(name, 'persist_wallet_monitor_check');
+    storedTransactions = input.p_transactions;
+    storedAlerts = input.p_alerts;
+    return { error: null, data: { newTransactionCount: storedTransactions.length, newAlertCount: storedAlerts.length } };
   } };
   const result = await runWalletMonitor(admin, { id: 'test-monitor', address: A });
   assert.equal(result.error, undefined);

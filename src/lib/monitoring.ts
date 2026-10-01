@@ -188,62 +188,35 @@ export async function runWalletMonitor(
   try {
     const transactions = await fetchEthereumTransactions(monitor.address, 100);
     const rows = transactions.map((transaction) => monitoringTransactionRow(monitor.id, transaction));
-    const { data: insertedRows, error: transactionError } = rows.length
-      ? await admin
-          .from('monitor_transactions')
-          .upsert(rows, { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true })
-          .select('transaction_hash')
-      : { data: [], error: null };
-
-    if (transactionError) throw new Error('Unable to save newly detected transactions.');
-
-    const insertedHashes = new Set(
-      (insertedRows || []).map((row: { transaction_hash: string }) => row.transaction_hash.toLowerCase()),
-    );
     const analysis = analyzeWalletTransactions(monitor.address, transactions);
-
-    if (insertedHashes.size > 0) {
-      const snapshot = analysisSnapshot(analysis);
-      const { error: analysisError } = await admin
-        .from('monitor_transactions')
-        .update({ analysis: snapshot })
-        .eq('monitor_id', monitor.id)
-        .in('transaction_hash', Array.from(insertedHashes));
-      if (analysisError) throw new Error('Unable to save transaction analysis.');
-    }
-
-    const alerts = unusualMovementAlerts(monitor, transactions, insertedHashes, analysis);
-    const splittingAlert = fundSplittingAlert(monitor, analysis, insertedHashes);
+    // Calculate candidates without writing. The RPC filters them to hashes it
+    // actually inserts, preserving baseline suppression and concurrent deduplication.
+    const candidateHashes = new Set(transactions.map(transactionHash));
+    const alerts = unusualMovementAlerts(monitor, transactions, candidateHashes, analysis);
+    const splittingAlert = fundSplittingAlert(monitor, analysis, candidateHashes);
     if (splittingAlert) alerts.push(splittingAlert);
 
-    let newAlertCount = 0;
-    if (alerts.length > 0) {
-      const { data: insertedAlerts, error: alertError } = await admin
-        .from('monitor_alerts')
-        .upsert(alerts, {
-          onConflict: 'monitor_id,source_transaction_hash,alert_type',
-          ignoreDuplicates: true,
-        })
-        .select('id');
-      if (alertError) throw new Error('Unable to create monitoring alerts.');
-      newAlertCount = insertedAlerts?.length || 0;
+    const { data, error: persistenceError } = await admin.rpc('persist_wallet_monitor_check', {
+      p_monitor_id: monitor.id,
+      p_user_id: monitor.user_id,
+      p_address: monitor.address,
+      p_checked_at: checkedAt,
+      p_transactions: rows,
+      p_analysis: analysisSnapshot(analysis),
+      p_alerts: alerts,
+    });
+    // Never fall back to separate writes, including when the migration is missing.
+    if (persistenceError) throw new Error('Unable to atomically save the wallet monitoring check. Verify the monitoring atomicity migration is installed, then retry.');
+    if (!data || !Number.isInteger(data.newTransactionCount) || data.newTransactionCount < 0 ||
+        !Number.isInteger(data.newAlertCount) || data.newAlertCount < 0) {
+      throw new Error('Wallet monitoring persistence could not be confirmed. Retry the check.');
     }
-
-    const { error: monitorError } = await admin
-      .from('wallet_monitors')
-      .update({
-        last_checked_at: checkedAt,
-        last_successful_check_at: checkedAt,
-        last_error: null,
-      })
-      .eq('id', monitor.id);
-    if (monitorError) throw new Error('Unable to update wallet monitoring status.');
 
     return {
       monitorId: monitor.id,
       address: monitor.address,
-      newTransactionCount: insertedHashes.size,
-      newAlertCount,
+      newTransactionCount: data.newTransactionCount,
+      newAlertCount: data.newAlertCount,
       checkedAt,
     };
   } catch (error) {
