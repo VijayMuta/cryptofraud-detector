@@ -20,7 +20,8 @@ async function context(request: NextRequest, { id, bookmarkId }: Params['params'
   if (!data) return { error: reply({ error: 'Bookmark not found in this case.' }, 404) };
   return { admin, user };
 }
-export async function GET(request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params); if (ctx.error) return ctx.error;
     const { data, error } = await ctx.admin!.from('case_evidence_tags').select(tagFields).eq('bookmark_id', params.bookmarkId).order('tag_id');
@@ -50,5 +51,7 @@ async function mutate(request: NextRequest, params: Params['params'], remove: bo
     return reply({ tag: data }, 201);
   } catch { return reply({ error: 'Tag change could not be confirmed. Refresh saved evidence before retrying.' }, 503); }
 }
-export async function POST(request: NextRequest, { params }: Params) { return mutate(request, params, false); }
-export async function DELETE(request: NextRequest, { params }: Params) { return mutate(request, params, true); }
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams; return mutate(request, params, false); }
+export async function DELETE(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams; return mutate(request, params, true); }

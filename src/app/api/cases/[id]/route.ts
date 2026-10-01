@@ -27,7 +27,8 @@ async function context(request: NextRequest, caseId: string) {
   }
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   const current = await context(request, params.id);
   if (current.error || !current.admin || !current.caseRecord) return current.error!;
 
@@ -39,7 +40,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   }
 }
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   const current = await context(request, params.id);
   if (current.error || !current.admin || !current.user || !current.caseRecord) return current.error!;
 

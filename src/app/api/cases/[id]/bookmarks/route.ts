@@ -15,7 +15,8 @@ async function context(request: NextRequest, id: string) {
   if (!await getOwnedCase(admin, user.id, id)) return { error: reply({ error: 'Case not found or not accessible.' }, 404) };
   return { admin, user };
 }
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id); if (ctx.error) return ctx.error;
     const offset = Number(request.nextUrl.searchParams.get('offset') || 0);
@@ -26,7 +27,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return reply({ bookmarks: data || [], nextOffset: data?.length === 50 ? offset + 50 : null });
   } catch { return reply({ error: 'Unable to load saved evidence. Check that the bookmarks and evidence tags migrations are installed, then retry.' }, 503); }
 }
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id); if (ctx.error) return ctx.error;
     let bookmark;
@@ -42,7 +44,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return reply({ bookmark: data }, 201);
   } catch { return reply({ error: 'Bookmark save could not be confirmed. Refresh saved evidence before retrying.' }, 503); }
 }
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id); if (ctx.error) return ctx.error;
     const id = request.nextUrl.searchParams.get('bookmarkId');

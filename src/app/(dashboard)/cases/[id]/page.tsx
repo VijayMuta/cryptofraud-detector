@@ -5,6 +5,7 @@ import { CaseNotes } from '@/components/case-notes';
 import { CaseBookmarks } from '@/components/case-bookmarks';
 
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   AlertCircle,
@@ -67,7 +68,8 @@ function statusClass(status: CaseStatus) {
   return 'border-violet-400/30 bg-violet-400/10 text-violet-200';
 }
 
-export default function CaseDetails({ params }: { params: { id: string } }) {
+export default function CaseDetails() {
+  const params = useParams<{ id: string }>();
   const [caseRecord, setCaseRecord] = useState<CaseRecord | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');

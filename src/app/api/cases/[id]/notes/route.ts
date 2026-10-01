@@ -16,7 +16,8 @@ async function context(request: NextRequest, id: string) {
   return { admin, user };
 }
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id);
     if (ctx.error) return ctx.error;
@@ -29,7 +30,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   } catch { return reply({ error: 'Unable to load Case Notes. Check that the notes migration is installed, then retry.' }, 503); }
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id);
     if (ctx.error) return ctx.error;

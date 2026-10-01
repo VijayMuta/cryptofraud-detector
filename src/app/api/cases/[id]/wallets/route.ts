@@ -11,7 +11,8 @@ function response(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   const user = await getRequestUser(request);
   if (!user) return response({ error: 'Sign in to add a suspect wallet.' }, 401);
   let admin;
@@ -52,7 +53,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   }
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   const user = await getRequestUser(request);
   if (!user) return response({ error: 'Sign in to remove a suspect wallet.' }, 401);
   let admin;

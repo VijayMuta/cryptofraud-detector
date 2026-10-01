@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { REPORT_FIELDS, REPORT_ID, REPORT_STATUSES } from '@/lib/victim-reports';
 import { databaseFailure, reportBody, reportContext, reportFailure, reportResponse, ReportError } from '@/lib/victim-report-server';
 export const dynamic = 'force-dynamic';
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const { user, admin } = await reportContext(request);
     if (!REPORT_ID.test(params.id)) throw new ReportError('Report not found.', 404);
@@ -14,7 +15,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return reportResponse({ report: data, sameWalletCount: duplicate.error ? null : duplicate.count });
   } catch (error) { return reportFailure(error); }
 }
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const { user, admin } = await reportContext(request);
     if (!REPORT_ID.test(params.id)) throw new ReportError('Report not found.', 404);

@@ -1,12 +1,14 @@
 'use client';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
 import { REPORT_STATUSES, STATUS_LABELS, reportInvestigationUrl, type ReportStatus, type VictimReport } from '@/lib/victim-reports';
 import { WalletAddress } from '@/components/wallet-address';
 
 type Observation = { transaction: { hash: string; from: string; to: string | null; valueEth: string; status: string; timestamp: string | null }; network: string; dataSource: string; verifiedAt: string };
-export default function ReportDetail({ params }: { params: { id: string } }) {
+export default function ReportDetail() {
+  const params = useParams<{ id: string }>();
   const [report, setReport] = useState<VictimReport | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [error, setError] = useState('');

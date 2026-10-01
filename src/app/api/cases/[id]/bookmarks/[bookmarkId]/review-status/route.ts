@@ -20,7 +20,8 @@ async function context(request: NextRequest, { id, bookmarkId }: Params['params'
   if (!data) return { error: reply({ error: 'Bookmark not found in this case.' }, 404) };
   return { admin, user };
 }
-export async function GET(request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params); if (ctx.error) return ctx.error;
     const { data, error } = await ctx.admin!.from('case_evidence_review_statuses').select(reviewFields)
@@ -29,7 +30,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     return reply({ review: data || defaultEvidenceReview(params.id, params.bookmarkId) });
   } catch { return reply({ error: 'Unable to load review status. Check that the evidence review status migration is installed, then retry.' }, 503); }
 }
-export async function PUT(request: NextRequest, { params }: Params) {
+export async function PUT(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params); if (ctx.error) return ctx.error;
     let status;

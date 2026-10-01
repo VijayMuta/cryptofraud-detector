@@ -20,9 +20,9 @@ test('persisted bookmark-note activity survives GET validation and renders in Al
   const auth = load('src/lib/request-auth.ts');
   const admin = load('src/lib/supabase-admin.ts');
   const cases = load('src/lib/cases.ts');
-  const originals = [auth.getRequestUser, admin.getSupabaseAdmin, cases.getOwnedCase, React.useState, React.useEffect];
+  const originals = [auth.getRequestUser, admin.getSupabaseAdmin, cases.getOwnedCase, React.useState, React.useEffect, React.useContext];
   t.after(() => {
-    [auth.getRequestUser, admin.getSupabaseAdmin, cases.getOwnedCase, React.useState, React.useEffect] = originals;
+    [auth.getRequestUser, admin.getSupabaseAdmin, cases.getOwnedCase, React.useState, React.useEffect, React.useContext] = originals;
   });
   auth.getRequestUser = async () => ({ id: event.actor_user_id });
   cases.getOwnedCase = async () => ({ id: caseId, case_code: 'CF-regression' });
@@ -38,7 +38,7 @@ test('persisted bookmark-note activity survives GET validation and renders in Al
     };
   } });
   const route = load('src/app/api/cases/[id]/activity/route.ts');
-  const get = () => route.GET(new NextRequest('http://localhost/api/cases/' + caseId + '/activity'), { params: { id: caseId } });
+  const get = () => route.GET(new NextRequest('http://localhost/api/cases/' + caseId + '/activity'), { params: Promise.resolve({ id: caseId }) });
   const response = await get();
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -54,7 +54,9 @@ test('persisted bookmark-note activity survives GET validation and renders in Al
   const render = category => {
     const states = [payload.events, false, '', 0, category, payload.caseCode];
     React.useState = () => { assert.ok(states.length); return [states.shift(), () => {}]; };
-    const tree = Page({ params: { id: caseId } });
+    React.useContext = () => ({ id: caseId });
+    const tree = Page();
+    React.useContext = originals[5];
     assert.equal(states.length, 0);
     React.useState = originals[3];
     return renderToStaticMarkup(tree);

@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server';
 import { normalizeDetail, uuid, hash } from '@/lib/alerts';
 import { alertContext, alertFailure, alertResponse, AlertError } from '@/lib/alert-server';
 export const dynamic = 'force-dynamic';
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const { user, admin } = await alertContext(request);
     if (!uuid(params.id)) throw new AlertError('Alert not found.', 404);

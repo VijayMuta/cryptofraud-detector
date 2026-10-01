@@ -1,11 +1,13 @@
 'use client';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { authenticatedFetch } from '@/lib/client-api';
 import { downloadFile } from '@/lib/download';
 import { ACTIVITY_DEFINITIONS, ACTIVITY_EMPTY, ACTIVITY_NOTICE, exportActivity, orderActivity, type CaseActivity } from '@/lib/case-activity';
 
-export default function CaseActivityPage({ params }: { params: { id: string } }) {
+export default function CaseActivityPage() {
+  const params = useParams<{ id: string }>();
   const [events, setEvents] = useState<CaseActivity[]>([]);
   const [loading, setLoading] = useState(true), [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0), [category, setCategory] = useState('All');

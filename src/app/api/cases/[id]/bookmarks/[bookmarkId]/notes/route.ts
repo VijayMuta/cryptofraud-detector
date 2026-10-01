@@ -21,7 +21,8 @@ async function context(request: NextRequest, { id, bookmarkId }: Params['params'
   return { admin, user };
 }
 
-export async function GET(request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params); if (ctx.error) return ctx.error;
     const offset = Number(request.nextUrl.searchParams.get('offset') || 0);
@@ -34,7 +35,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   } catch { return reply({ error: 'Unable to load bookmark notes. Check that the bookmark notes migration is installed, then retry.' }, 503); }
 }
 
-export async function POST(request: NextRequest, { params }: Params) {
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<Params['params']> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params); if (ctx.error) return ctx.error;
     let noteText: string;

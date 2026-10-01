@@ -16,7 +16,8 @@ async function context(request: NextRequest, id: string) {
   if (!record) return { error: reply({ error: 'Case not found or not accessible.' }, 404) };
   return { admin, user, record };
 }
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id);
     if (ctx.error) return ctx.error;
@@ -31,7 +32,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     return reply({ events, nextOffset: events.length === 100 ? offset + 100 : null, caseCode: ctx.record!.case_code });
   } catch { return reply({ error: 'Unable to load Case Activity. Check that the activity migration is installed, then retry.' }, 503); }
 }
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params: routeParams }: { params: Promise<{ id: string }> }) {
+  const params = await routeParams;
   try {
     const ctx = await context(request, params.id);
     if (ctx.error) return ctx.error;
