@@ -20,10 +20,12 @@ function provider(t, initial) {
 
 // In-memory transaction/cursor contract simulator, NOT a PostgreSQL engine.
 // Failure injection stages all writes, publishing them together at commit.
-function database() {
-  let state = { transactions: [], alerts: [], last_successful_check_at: null, last_error: null, cursor: null };
+function database(options = {}) {
+  let state = { monitor: options.monitor ? structuredClone(options.monitor) : null, transactions: [], alerts: [], last_successful_check_at: null, last_error: null, cursor: null };
   let failure = null;
   const calls = [];
+  const enrollments = [];
+  const abort = stage => { if (failure === stage) { failure = null; throw new Error('fixture persistence failure'); } };
   const initialize = () => {
     const boundary = Math.max(0, ...state.transactions.map(row => Number(row.block_number)));
     state.cursor = { confirmedBlock: boundary, scanFrom: boundary + 1, scanTo: null, nextPage: 1, revision: (state.cursor?.revision ?? -1) + 1 };
@@ -34,9 +36,49 @@ function database() {
   })) });
   return {
     calls,
+    enrollments,
     get state() { return structuredClone(state); },
     failAt(stage) { failure = stage; },
+    setActive(active) {
+      state.monitor.is_active = active;
+      state.monitor.updated_at = new Date(Date.parse(state.monitor.updated_at) + 1).toISOString();
+    },
     async rpc(name, input) {
+      if (name === 'enroll_wallet_monitor') {
+        enrollments.push(structuredClone(input));
+        const draft = structuredClone(state);
+        try {
+          abort('enrollment-rpc');
+          if (options.role && options.role !== 'service_role') throw new Error('permission denied');
+          const stale = () => { throw Object.assign(new Error('stale enrollment'), { code: '40001' }); };
+          if (input.p_monitor_id === null) {
+            if (draft.monitor) stale();
+            draft.monitor = { id: '11111111-1111-4111-8111-111111111111', user_id: input.p_user_id,
+              address: input.p_address, network: 'ethereum', is_active: false, updated_at: input.p_checked_at };
+          } else {
+            const m = draft.monitor;
+            if (!m || m.id !== input.p_monitor_id || m.user_id !== input.p_user_id || m.address !== input.p_address || m.network !== 'ethereum') throw new Error('monitor not found');
+            if (!input.p_expected_updated_at || input.p_expected_updated_at !== m.updated_at) stale();
+          }
+          if (draft.monitor.is_active) stale();
+          for (const row of input.p_transactions) {
+            if (!draft.transactions.some(saved => saved.transaction_hash === row.transaction_hash)) {
+              draft.transactions.push({ ...row, monitor_id: draft.monitor.id, analysis: null });
+            }
+          }
+          abort('enrollment-baseline');
+          const boundary = Math.max(0, ...draft.transactions.map(row => Number(row.block_number)));
+          draft.cursor = { confirmedBlock: boundary, scanFrom: boundary + 1, scanTo: null, nextPage: 1, revision: (draft.cursor?.revision ?? -1) + 1 };
+          abort('enrollment-cursor');
+          draft.last_successful_check_at = input.p_checked_at; draft.last_error = null;
+          Object.assign(draft.monitor, { is_active: true, updated_at: input.p_checked_at,
+            last_checked_at: input.p_checked_at, last_successful_check_at: input.p_checked_at, last_error: null });
+          abort('enrollment-activation');
+          state = draft;
+          abort('enrollment-response');
+          return { error: null, data: { monitor: structuredClone(draft.monitor), baselineTransactionCount: input.p_transactions.length } };
+        } catch (error) { return { error, data: null }; }
+      }
       if (name === 'get_wallet_monitor_cursor') {
         if (!state.cursor || input.p_reset) initialize();
         return { data: structuredClone(cursor()), error: null };
@@ -44,7 +86,6 @@ function database() {
       assert.equal(name, 'persist_wallet_monitor_page');
       calls.push(structuredClone(input));
       const draft = structuredClone(state), fresh = new Set();
-      const abort = stage => { if (failure === stage) { failure = null; throw new Error('fixture persistence failure'); } };
       try {
         abort('missing-rpc');
         if (input.p_expected_revision !== draft.cursor.revision || input.p_scan_from !== draft.cursor.scanFrom ||
@@ -83,16 +124,18 @@ function database() {
       } catch (error) { return { error, data: null }; }
     },
     from(table) { return {
+      select() {
+        assert.equal(table, 'wallet_monitors');
+        const filters = [];
+        return { eq(key, value) { filters.push([key, value]); return this; }, async maybeSingle() {
+          const m = state.monitor;
+          return { data: m && filters.every(([key, value]) => m[key] === value) ? structuredClone(m) : null, error: null };
+        } };
+      },
       update(patch) {
         assert.equal(table, 'wallet_monitors');
         assert.deepEqual(Object.keys(patch).sort(), ['last_checked_at', 'last_error']);
         return { async eq(column) { assert.equal(column, 'id'); Object.assign(state, patch); return { error: null }; } };
-      },
-      async upsert(rows, options) {
-        assert.equal(table, 'monitor_transactions');
-        assert.deepEqual(options, { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true });
-        for (const row of rows) if (!state.transactions.some(saved => saved.transaction_hash === row.transaction_hash)) state.transactions.push({ ...row, analysis: null });
-        return { error: null };
       },
     }; },
   };

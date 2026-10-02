@@ -15,7 +15,7 @@ const transaction = (index, block = index) => ({ hash: '0x' + index.toString(16)
 test('151 new transfers reach baseline checkpoint; qualifying transfer outside newest 100 creates alert', async t => {
   const history = Array.from({ length: 154 }, (_, i) => transaction(i + 1));
   const source = provider(t, history.slice(0, 3)); const db = database();
-  await seedMonitorTransactions(db, monitor.id, address, monitor.user_id);
+  await seedMonitorTransactions(db, null, address, monitor.user_id);
   source.setHistory(history);
   const result = await runWalletMonitor(db, monitor);
   assert.equal(result.error, undefined); assert.equal(result.newTransactionCount, 151);
@@ -81,7 +81,7 @@ test('checkpoint failure rolls back STAB-01 evidence; retry and stale replay are
 
 test('baseline suppression initializes from stored history, never from the current provider head', async t => {
   const source = provider(t, Array.from({ length: 4 }, (_, i) => transaction(i + 1)));
-  const db = database(); await seedMonitorTransactions(db, monitor.id, address, monitor.user_id);
+  const db = database(); await seedMonitorTransactions(db, null, address, monitor.user_id);
   source.setHistory(Array.from({ length: 105 }, (_, i) => transaction(i + 1)));
   const result = await runWalletMonitor(db, monitor);
   assert.equal(result.error, undefined); assert.equal(result.newTransactionCount, 101);
@@ -91,7 +91,7 @@ test('baseline suppression initializes from stored history, never from the curre
 
 test('provider behind checkpoint fails instead of regressing the confirmed boundary', async t => {
   const source = provider(t, [transaction(10)]); const db = database();
-  await seedMonitorTransactions(db, monitor.id, address, monitor.user_id);
+  await seedMonitorTransactions(db, null, address, monitor.user_id);
   source.setHistory([transaction(9)]);
   assert.match((await runWalletMonitor(db, monitor)).error, /behind/);
   assert.equal(db.state.cursor.confirmedBlock, 10); assert.equal(db.calls.length, 0);

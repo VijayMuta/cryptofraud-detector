@@ -160,26 +160,38 @@ function fundSplittingAlert(
   };
 }
 
+export class MonitorEnrollmentError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
 export async function seedMonitorTransactions(
   admin: SupabaseClient,
-  monitorId: string,
+  monitorId: string | null,
   address: string,
   userId: string,
+  expectedUpdatedAt: string | null = null,
 ) {
   const transactions = await fetchEthereumTransactions(address, 100);
-  const { error } = transactions.length ? await admin
-    .from('monitor_transactions')
-    .upsert(
-      transactions.map((transaction) => monitoringTransactionRow(monitorId, transaction)),
-      { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true },
-    ) : { error: null };
-
-  if (error) throw new Error('Unable to save the wallet monitoring baseline.');
-  const { error: checkpointError } = await admin.rpc('get_wallet_monitor_cursor', {
-    p_monitor_id: monitorId, p_user_id: userId, p_address: address, p_reset: true,
+  // Fetch first, then validate the observed state UNDER the database lock before
+  // any baseline write. Never fall back to sequential seed/reset/activation.
+  const { data, error } = await admin.rpc('enroll_wallet_monitor', {
+    p_monitor_id: monitorId, p_user_id: userId, p_address: address,
+    p_expected_updated_at: expectedUpdatedAt, p_checked_at: new Date().toISOString(),
+    p_transactions: transactions.map(transaction => {
+      const { monitor_id: _monitorId, ...row } = monitoringTransactionRow(monitorId, transaction);
+      return row;
+    }),
   });
-  if (checkpointError) throw new Error('Unable to reset the wallet monitoring baseline checkpoint.');
-  return transactions.length;
+  if (error?.code === '40001') {
+    throw new MonitorEnrollmentError('Wallet monitoring changed during enrollment. Refresh and retry.', 409);
+  }
+  if (error || !data?.monitor || data.monitor.user_id !== userId || data.monitor.address !== address ||
+      data.monitor.network !== 'ethereum' || data.monitor.is_active !== true ||
+      typeof data.monitor.id !== 'string' || (monitorId !== null && data.monitor.id !== monitorId) ||
+      data.baselineTransactionCount !== transactions.length) {
+    throw new MonitorEnrollmentError('Atomic wallet enrollment could not be confirmed. Verify the baseline enrollment migration is installed, then retry.', 502);
+  }
+  return data as { monitor: WalletMonitor; baselineTransactionCount: number };
 }
 
 type MonitorCursor = {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fetchEthereumTransactions, isEthereumAddress } from '@/lib/etherscan';
-import { seedMonitorTransactions, type WalletMonitor } from '@/lib/monitoring';
+import { isEthereumAddress } from '@/lib/etherscan';
+import { MonitorEnrollmentError, seedMonitorTransactions, type WalletMonitor } from '@/lib/monitoring';
 import { getRequestUser } from '@/lib/request-auth';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
@@ -71,79 +71,14 @@ export async function POST(request: NextRequest) {
   if (existingError) return noStore({ error: 'Unable to prepare wallet monitoring.' }, 500);
   if (existing?.is_active) return noStore({ monitor: existing as WalletMonitor, created: false });
 
-  if (existing) {
-    try {
-      await seedMonitorTransactions(admin, existing.id, address, user.id);
-      const { data: monitor, error } = await admin
-        .from('wallet_monitors')
-        .update({
-          is_active: true,
-          last_checked_at: new Date().toISOString(),
-          last_successful_check_at: new Date().toISOString(),
-          last_error: null,
-        })
-        .eq('id', existing.id)
-        .eq('user_id', user.id)
-        .select('id,user_id,address,network,is_active,last_checked_at,last_successful_check_at,last_error,created_at,updated_at')
-        .single();
-      if (error) throw error;
-      return noStore({ monitor: monitor as WalletMonitor, created: false });
-    } catch {
-      return noStore({ error: 'Unable to retrieve a live Ethereum baseline for this wallet.' }, 502);
-    }
-  }
-
   try {
-    // Obtain a real-chain baseline before enabling the monitor so historical
-    // transactions never generate "new movement" alerts.
-    const baseline = await fetchEthereumTransactions(address, 100);
-    const { data: insertedMonitor, error: monitorInsertError } = await admin
-      .from('wallet_monitors')
-      .insert({ user_id: user.id, address, network: 'ethereum', is_active: false })
-      .select('id,user_id,address,network,is_active,last_checked_at,last_successful_check_at,last_error,created_at,updated_at')
-      .single();
-
-    if (monitorInsertError) {
-      const { data: concurrentMonitor } = await admin
-        .from('wallet_monitors')
-        .select('id,user_id,address,network,is_active,last_checked_at,last_successful_check_at,last_error,created_at,updated_at')
-        .eq('user_id', user.id)
-        .eq('address', address)
-        .eq('network', 'ethereum')
-        .maybeSingle();
-      if (concurrentMonitor) return noStore({ monitor: concurrentMonitor as WalletMonitor, created: false });
-      throw monitorInsertError;
-    }
-
-    if (baseline.length > 0) {
-      const { error: baselineError } = await admin.from('monitor_transactions').upsert(
-        baseline.map((transaction) => ({
-          monitor_id: insertedMonitor.id,
-          transaction_hash: transaction.hash.toLowerCase(),
-          block_number: /^\d+$/.test(transaction.blockNumber) ? Number(transaction.blockNumber) : null,
-          occurred_at: transaction.timestamp,
-          from_address: transaction.from.toLowerCase(),
-          to_address: transaction.to?.toLowerCase() || null,
-          value_wei: /^\d+$/.test(transaction.value) ? transaction.value : '0',
-          status: transaction.status,
-        })),
-        { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true },
-      );
-      if (baselineError) throw baselineError;
-    }
-
-    const checkedAt = new Date().toISOString();
-    const { data: monitor, error: activateError } = await admin
-      .from('wallet_monitors')
-      .update({ is_active: true, last_checked_at: checkedAt, last_successful_check_at: checkedAt, last_error: null })
-      .eq('id', insertedMonitor.id)
-      .select('id,user_id,address,network,is_active,last_checked_at,last_successful_check_at,last_error,created_at,updated_at')
-      .single();
-    if (activateError) throw activateError;
-
-    return noStore({ monitor: monitor as WalletMonitor, created: true, baselineTransactionCount: baseline.length }, 201);
-  } catch {
-    return noStore({ error: 'Unable to start live wallet monitoring. Please try again shortly.' }, 502);
+    const result = await seedMonitorTransactions(
+      admin, existing?.id ?? null, address, user.id, existing?.updated_at ?? null,
+    );
+    return noStore({ ...result, created: !existing }, existing ? 200 : 201);
+  } catch (error) {
+    if (error instanceof MonitorEnrollmentError) return noStore({ error: error.message }, error.status);
+    return noStore({ error: 'Unable to retrieve a live Ethereum baseline for this wallet. Please retry.' }, 502);
   }
 }
 

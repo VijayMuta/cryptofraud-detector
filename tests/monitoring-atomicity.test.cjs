@@ -51,7 +51,7 @@ test('committed check with lost response retries without duplicate transactions 
 
 test('seeded qualifying history remains baseline: no retroactive alerts or analysis overwrites', async t => {
   provider(t, movement()); const db = database();
-  assert.equal(await seedMonitorTransactions(db, monitor.id, address, monitor.user_id), 4);
+  assert.equal((await seedMonitorTransactions(db, null, address, monitor.user_id)).baselineTransactionCount, 4);
   const checked = await runWalletMonitor(db, monitor);
   assert.equal(checked.error, undefined); assert.equal(checked.newTransactionCount, 0); assert.equal(checked.newAlertCount, 0);
   assert.equal(db.calls[0].p_alerts.length, 0, 'baseline lies at or below the initial checkpoint');
