@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   if (existing) {
     try {
-      await seedMonitorTransactions(admin, existing.id, address);
+      await seedMonitorTransactions(admin, existing.id, address, user.id);
       const { data: monitor, error } = await admin
         .from('wallet_monitors')
         .update({

@@ -63,6 +63,7 @@ async function fetchEthereumTransactionsPage(
   page: number,
   limit: number,
   sort: 'asc' | 'desc',
+  range?: { startBlock: number; endBlock: number; timeoutMs?: number },
 ): Promise<WalletTransaction[]> {
   if (!isEthereumAddress(address)) throw new EthereumServiceError('Invalid Ethereum address.');
 
@@ -78,9 +79,13 @@ async function fetchEthereumTransactionsPage(
   url.searchParams.set('offset', String(limit));
   url.searchParams.set('sort', sort);
   url.searchParams.set('apikey', apiKey);
+  if (range) {
+    url.searchParams.set('startblock', String(range.startBlock));
+    url.searchParams.set('endblock', String(range.endBlock));
+  }
 
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => abortController.abort(), Math.min(REQUEST_TIMEOUT_MS, range?.timeoutMs ?? REQUEST_TIMEOUT_MS));
 
   let payload: EtherscanResponse;
   try {
@@ -103,13 +108,23 @@ async function fetchEthereumTransactionsPage(
   }
 
   const noTransactions =
-    payload.message === 'No transactions found' && Array.isArray(payload.result);
+    payload?.message === 'No transactions found' && Array.isArray(payload.result) && payload.result.length === 0;
 
-  if (payload.status !== '1' && !noTransactions) {
+  if (payload?.status !== '1' && !noTransactions) {
     throw new EthereumServiceError('Ethereum service did not return transactions.');
   }
 
   const sourceTransactions = Array.isArray(payload.result) ? payload.result : [];
+  // Monitoring must never interpret a malformed/truncated response as range exhaustion.
+  if (range && (!Array.isArray(payload.result) || sourceTransactions.length > limit || sourceTransactions.some(row =>
+    !row || typeof row !== 'object' || !/^0x[0-9a-f]{64}$/i.test(readString(row.hash)) ||
+    !/^\d+$/.test(readString(row.blockNumber)) || !Number.isSafeInteger(Number(row.blockNumber)) ||
+    Number(row.blockNumber) < range.startBlock || Number(row.blockNumber) > range.endBlock ||
+    !/^0x[0-9a-f]{40}$/i.test(readString(row.from)) ||
+    (readString(row.to) !== '' && !/^0x[0-9a-f]{40}$/i.test(readString(row.to))) ||
+    !/^\d+$/.test(readString(row.value)) || !toIsoTimestamp(row.timeStamp)))) {
+    throw new EthereumServiceError('Ethereum monitoring history is incomplete or invalid. Retry the check.');
+  }
   return sourceTransactions
     .filter(
       (transaction): transaction is EtherscanTransaction =>
@@ -130,6 +145,24 @@ async function fetchEthereumTransactionsPage(
 /** Returns the most recent normal transactions for investigation and monitoring views. */
 export async function fetchEthereumTransactions(address: string, limit = 50): Promise<WalletTransaction[]> {
   return fetchEthereumTransactionsPage(address, 1, boundedInteger(limit, 50, MAX_ETHERSCAN_PAGE_SIZE), 'desc');
+}
+
+/** Fixed block ranges prevent newly mined blocks from shifting pages during catch-up. */
+export async function fetchMonitoringHeadBlock(address: string, timeoutMs = REQUEST_TIMEOUT_MS) {
+  const rows = await fetchEthereumTransactionsPage(address, 1, 1, 'desc', { startBlock: 0, endBlock: 999999999, timeoutMs });
+  return rows.length ? Number(rows[0].blockNumber) : 0;
+}
+
+export async function fetchMonitoringPage(address: string, startBlock: number, endBlock: number, page: number, timeoutMs = REQUEST_TIMEOUT_MS) {
+  if (![startBlock, endBlock, page].every(Number.isSafeInteger) || startBlock < 0 || endBlock < startBlock || page < 1) {
+    throw new EthereumServiceError('Invalid monitoring history range.');
+  }
+  const rows = await fetchEthereumTransactionsPage(address, page, 100, 'asc', { startBlock, endBlock, timeoutMs });
+  if (new Set(rows.map(row => row.hash.toLowerCase())).size !== rows.length ||
+      rows.some((row, index) => index > 0 && Number(row.blockNumber) < Number(rows[index - 1].blockNumber))) {
+    throw new EthereumServiceError('Ethereum monitoring history is unordered or duplicated. Retry the check.');
+  }
+  return rows;
 }
 
 /**

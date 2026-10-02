@@ -56,17 +56,21 @@ test('Freeze/Hold Money Fingerprint preserves whole ETH and exact exported evide
 test('new monitoring descriptions preserve whole ETH without changing stored wei', async t => {
   const etherscan = load('src/lib/etherscan.ts');
   const original = etherscan.fetchEthereumTransactions;
-  t.after(() => { etherscan.fetchEthereumTransactions = original; });
+  const originalPage = etherscan.fetchMonitoringPage, originalHead = etherscan.fetchMonitoringHeadBlock;
+  t.after(() => { etherscan.fetchEthereumTransactions = original; etherscan.fetchMonitoringPage = originalPage; etherscan.fetchMonitoringHeadBlock = originalHead; });
   const transactions = [transaction(1, ETH / 10n), transaction(2, ETH / 10n), transaction(3, ETH / 10n), transaction(4, ETH + 1n)];
   etherscan.fetchEthereumTransactions = async () => transactions;
+  etherscan.fetchMonitoringPage = async () => transactions;
+  etherscan.fetchMonitoringHeadBlock = async () => 1;
   const { runWalletMonitor } = load('src/lib/monitoring.ts');
   let storedTransactions = [], storedAlerts = [];
   // In-memory persistence only; no provider or database is contacted.
   const admin = { async rpc(name, input) {
-    assert.equal(name, 'persist_wallet_monitor_check');
+    if (name === 'get_wallet_monitor_cursor') return { data: { confirmedBlock: 0, scanFrom: 1, scanTo: null, nextPage: 1, revision: 0, context: [] }, error: null };
+    assert.equal(name, 'persist_wallet_monitor_page');
     storedTransactions = input.p_transactions;
     storedAlerts = input.p_alerts;
-    return { error: null, data: { newTransactionCount: storedTransactions.length, newAlertCount: storedAlerts.length } };
+    return { error: null, data: { newTransactionCount: storedTransactions.length, newAlertCount: storedAlerts.length, cursor: {} } };
   } };
   const result = await runWalletMonitor(admin, { id: 'test-monitor', address: A });
   assert.equal(result.error, undefined);

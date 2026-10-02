@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { fetchEthereumTransactions } from '@/lib/etherscan';
+import { fetchEthereumTransactions, fetchMonitoringHeadBlock, fetchMonitoringPage } from '@/lib/etherscan';
 import {
   analyzeWalletTransactions,
   formatEth,
@@ -164,75 +164,90 @@ export async function seedMonitorTransactions(
   admin: SupabaseClient,
   monitorId: string,
   address: string,
+  userId: string,
 ) {
   const transactions = await fetchEthereumTransactions(address, 100);
-  if (transactions.length === 0) return 0;
-
-  const { error } = await admin
+  const { error } = transactions.length ? await admin
     .from('monitor_transactions')
     .upsert(
       transactions.map((transaction) => monitoringTransactionRow(monitorId, transaction)),
       { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true },
-    );
+    ) : { error: null };
 
   if (error) throw new Error('Unable to save the wallet monitoring baseline.');
+  const { error: checkpointError } = await admin.rpc('get_wallet_monitor_cursor', {
+    p_monitor_id: monitorId, p_user_id: userId, p_address: address, p_reset: true,
+  });
+  if (checkpointError) throw new Error('Unable to reset the wallet monitoring baseline checkpoint.');
   return transactions.length;
 }
+
+type MonitorCursor = {
+  confirmedBlock: number; scanFrom: number; scanTo: number | null;
+  nextPage: number; revision: number; context: WalletTransaction[];
+};
+const INCOMPLETE = 'Monitoring coverage is incomplete. Saved progress will resume on the next check.';
 
 export async function runWalletMonitor(
   admin: SupabaseClient,
   monitor: WalletMonitor,
+  deadline = Date.now() + 25_000,
 ): Promise<MonitorCheckResult> {
   const checkedAt = new Date().toISOString();
-
+  let newTransactionCount = 0, newAlertCount = 0;
   try {
-    const transactions = await fetchEthereumTransactions(monitor.address, 100);
-    const rows = transactions.map((transaction) => monitoringTransactionRow(monitor.id, transaction));
-    const analysis = analyzeWalletTransactions(monitor.address, transactions);
-    // Calculate candidates without writing. The RPC filters them to hashes it
-    // actually inserts, preserving baseline suppression and concurrent deduplication.
-    const candidateHashes = new Set(transactions.map(transactionHash));
-    const alerts = unusualMovementAlerts(monitor, transactions, candidateHashes, analysis);
-    const splittingAlert = fundSplittingAlert(monitor, analysis, candidateHashes);
-    if (splittingAlert) alerts.push(splittingAlert);
-
-    const { data, error: persistenceError } = await admin.rpc('persist_wallet_monitor_check', {
-      p_monitor_id: monitor.id,
-      p_user_id: monitor.user_id,
-      p_address: monitor.address,
-      p_checked_at: checkedAt,
-      p_transactions: rows,
-      p_analysis: analysisSnapshot(analysis),
-      p_alerts: alerts,
-    });
-    // Never fall back to separate writes, including when the migration is missing.
-    if (persistenceError) throw new Error('Unable to atomically save the wallet monitoring check. Verify the monitoring atomicity migration is installed, then retry.');
-    if (!data || !Number.isInteger(data.newTransactionCount) || data.newTransactionCount < 0 ||
-        !Number.isInteger(data.newAlertCount) || data.newAlertCount < 0) {
-      throw new Error('Wallet monitoring persistence could not be confirmed. Retry the check.');
+    const identity = { p_monitor_id: monitor.id, p_user_id: monitor.user_id, p_address: monitor.address };
+    const { data: initial, error: cursorError } = await admin.rpc('get_wallet_monitor_cursor', identity);
+    if (cursorError || !initial) throw new Error('Monitoring checkpoint unavailable. Verify the monitoring checkpoint migration is installed, then retry.');
+    let cursor = initial as MonitorCursor;
+    const remaining = () => Math.max(1, deadline - Date.now());
+    if (Date.now() >= deadline) throw new Error(INCOMPLETE);
+    const head = cursor.scanTo ?? await fetchMonitoringHeadBlock(monitor.address, remaining());
+    if (head < cursor.confirmedBlock) throw new Error('Ethereum history is behind the confirmed monitoring boundary. Retry the check.');
+    // At most two 100-row pages per invocation. Every committed page carries its
+    // resume cursor in the same transaction; interruption never skips a page.
+    for (let pages = 0; pages < 2; pages++) {
+      if (Date.now() >= deadline) throw new Error(INCOMPLETE);
+      const page = head < cursor.scanFrom ? [] : await fetchMonitoringPage(
+        monitor.address, cursor.scanFrom, head, cursor.nextPage, remaining(),
+      );
+      const unique = new Map(cursor.context.map(row => [transactionHash(row), row]));
+      for (const row of page) unique.set(transactionHash(row), row);
+      const transactions = [...unique.values()];
+      const complete = page.length < 100;
+      // The head query witnessed a transaction in this block. A short page
+      // before that block is not proof that the pinned range is exhausted.
+      if (complete && head > cursor.confirmedBlock &&
+          !transactions.some(row => Number(row.blockNumber) === head)) {
+        throw new Error(INCOMPLETE);
+      }
+      const analysis = analyzeWalletTransactions(monitor.address, transactions);
+      const candidateHashes = new Set(page.map(transactionHash));
+      const alerts = unusualMovementAlerts(monitor, transactions, candidateHashes, analysis);
+      const splittingAlert = fundSplittingAlert(monitor, analysis, candidateHashes);
+      if (splittingAlert) alerts.push(splittingAlert);
+      const { data, error } = await admin.rpc('persist_wallet_monitor_page', {
+        ...identity, p_checked_at: checkedAt,
+        p_expected_revision: cursor.revision, p_scan_from: cursor.scanFrom,
+        p_scan_to: head, p_page: cursor.nextPage, p_complete: complete,
+        p_transactions: page.map(row => monitoringTransactionRow(monitor.id, row)),
+        p_analysis: analysisSnapshot(analysis), p_alerts: alerts,
+      });
+      // STAB-01 is called inside this RPC. Never fall back to separate writes.
+      if (error || !data || !Number.isInteger(data.newTransactionCount) || data.newTransactionCount < 0 ||
+          !Number.isInteger(data.newAlertCount) || data.newAlertCount < 0 || !data.cursor) {
+        throw new Error('Unable to atomically save monitoring evidence and checkpoint. Verify the monitoring checkpoint migration is installed, then retry.');
+      }
+      newTransactionCount += data.newTransactionCount;
+      newAlertCount += data.newAlertCount;
+      cursor = data.cursor;
+      if (complete) return { monitorId: monitor.id, address: monitor.address, newTransactionCount, newAlertCount, checkedAt };
     }
-
-    return {
-      monitorId: monitor.id,
-      address: monitor.address,
-      newTransactionCount: data.newTransactionCount,
-      newAlertCount: data.newAlertCount,
-      checkedAt,
-    };
+    throw new Error(INCOMPLETE);
   } catch (error) {
     const message = noDataError(error);
-    await admin
-      .from('wallet_monitors')
-      .update({ last_checked_at: checkedAt, last_error: message.slice(0, 500) })
-      .eq('id', monitor.id);
-
-    return {
-      monitorId: monitor.id,
-      address: monitor.address,
-      newTransactionCount: 0,
-      newAlertCount: 0,
-      checkedAt,
-      error: message,
-    };
+    await admin.from('wallet_monitors')
+      .update({ last_checked_at: checkedAt, last_error: message.slice(0, 500) }).eq('id', monitor.id);
+    return { monitorId: monitor.id, address: monitor.address, newTransactionCount, newAlertCount, checkedAt, error: message };
   }
 }

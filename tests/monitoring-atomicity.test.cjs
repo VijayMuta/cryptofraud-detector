@@ -15,81 +15,7 @@ const transfer = (index, value, to = recipient) => ({
 });
 const movement = () => [transfer(1, ETH / 10n), transfer(2, ETH / 10n), transfer(3, ETH / 10n), transfer(4, ETH + 1n)];
 
-function provider(t, transactions) {
-  const original = etherscan.fetchEthereumTransactions;
-  etherscan.fetchEthereumTransactions = async (wallet, limit) => {
-    assert.equal(wallet, address); assert.equal(limit, 100);
-    return structuredClone(transactions);
-  };
-  t.after(() => { etherscan.fetchEthereumTransactions = original; });
-}
-
-// Transactional RPC contract simulator, not a PostgreSQL engine. Each call stages
-// writes and publishes them only at commit. SQL structure/security is checked below;
-// real PostgreSQL fault-injection verification is documented in MONITORING-ATOMICITY.md.
-function database() {
-  let state = { transactions: [], alerts: [], last_successful_check_at: null, last_error: null };
-  let failure = null;
-  const calls = [];
-  return {
-    calls,
-    get state() { return structuredClone(state); },
-    failAt(stage) { failure = stage; },
-    async rpc(name, input) {
-      calls.push(structuredClone(input));
-      assert.equal(name, 'persist_wallet_monitor_check');
-      assert.equal(input.p_monitor_id, monitor.id);
-      assert.equal(input.p_user_id, monitor.user_id);
-      assert.equal(input.p_address, address);
-      const draft = structuredClone(state);
-      const newHashes = new Set();
-      const abort = stage => {
-        if (failure === stage) { failure = null; throw new Error('fixture persistence failure'); }
-      };
-      try {
-        abort('missing-rpc');
-        for (const row of input.p_transactions) {
-          if (draft.transactions.some(saved => saved.transaction_hash === row.transaction_hash)) continue;
-          draft.transactions.push({ ...row, analysis: input.p_analysis });
-          newHashes.add(row.transaction_hash);
-        }
-        abort('transactions');
-        let alertCount = 0;
-        for (const row of input.p_alerts) {
-          if (!newHashes.has(row.source_transaction_hash)) continue;
-          if (draft.alerts.some(saved => saved.source_transaction_hash === row.source_transaction_hash && saved.alert_type === row.alert_type)) continue;
-          draft.alerts.push(row); alertCount++;
-        }
-        abort('alerts');
-        draft.last_successful_check_at = input.p_checked_at;
-        draft.last_error = null;
-        abort('status');
-        state = draft;
-        // Response loss after commit must also be safe to retry.
-        abort('response');
-        return { error: null, data: { newTransactionCount: newHashes.size, newAlertCount: alertCount } };
-      } catch (error) { return { error, data: null }; }
-    },
-    from(table) {
-      return {
-        update(patch) {
-          assert.equal(table, 'wallet_monitors', 'no separate transaction/analysis/alert updates');
-          assert.deepEqual(Object.keys(patch).sort(), ['last_checked_at', 'last_error']);
-          return { async eq(column, id) {
-            assert.equal(column, 'id'); assert.equal(id, monitor.id);
-            Object.assign(state, patch); return { error: null };
-          } };
-        },
-        async upsert(rows, options) {
-          assert.equal(table, 'monitor_transactions');
-          assert.deepEqual(options, { onConflict: 'monitor_id,transaction_hash', ignoreDuplicates: true });
-          for (const row of rows) if (!state.transactions.some(saved => saved.transaction_hash === row.transaction_hash)) state.transactions.push({ ...row, analysis: null });
-          return { error: null };
-        },
-      };
-    },
-  };
-}
+const { provider, database } = require('./monitoring-fixture.cjs');
 
 for (const stage of ['transactions', 'alerts', 'status']) {
   test(`atomic monitor rolls back at ${stage}, retries all evidence, and deduplicates replay`, async t => {
@@ -125,10 +51,10 @@ test('committed check with lost response retries without duplicate transactions 
 
 test('seeded qualifying history remains baseline: no retroactive alerts or analysis overwrites', async t => {
   provider(t, movement()); const db = database();
-  assert.equal(await seedMonitorTransactions(db, monitor.id, address), 4);
+  assert.equal(await seedMonitorTransactions(db, monitor.id, address, monitor.user_id), 4);
   const checked = await runWalletMonitor(db, monitor);
   assert.equal(checked.error, undefined); assert.equal(checked.newTransactionCount, 0); assert.equal(checked.newAlertCount, 0);
-  assert.equal(db.calls[0].p_alerts.length, 1, 'candidate suppressed by database new-hash filter');
+  assert.equal(db.calls[0].p_alerts.length, 0, 'baseline lies at or below the initial checkpoint');
   assert.ok(db.state.transactions.every(row => row.analysis === null));
   assert.deepEqual(db.state.alerts, []);
 });
@@ -149,7 +75,8 @@ test('empty and nonqualifying checks persist success without fabricating alerts'
   const result = await runWalletMonitor(empty, monitor);
   assert.equal(result.error, undefined); assert.equal(result.newTransactionCount, 0); assert.equal(result.newAlertCount, 0);
   assert.equal(empty.state.last_successful_check_at, result.checkedAt);
-  etherscan.fetchEthereumTransactions = async () => [transfer(1, ETH)];
+  etherscan.fetchMonitoringHeadBlock = async () => 1;
+  etherscan.fetchMonitoringPage = async () => [transfer(1, ETH)];
   const quiet = database(); const checked = await runWalletMonitor(quiet, monitor);
   assert.equal(checked.error, undefined); assert.equal(checked.newTransactionCount, 1); assert.equal(checked.newAlertCount, 0);
   assert.deepEqual(quiet.state.alerts, []);

@@ -13,6 +13,7 @@ function authorized(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   if (!authorized(request)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const deadline = Date.now() + 45_000;
 
   let admin;
   try {
@@ -33,7 +34,8 @@ export async function GET(request: NextRequest) {
 
   const results = [];
   for (const monitor of (monitors || []) as WalletMonitor[]) {
-    results.push(await runWalletMonitor(admin, monitor));
+    if (Date.now() >= deadline) break;
+    results.push(await runWalletMonitor(admin, monitor, Math.min(deadline, Date.now() + 25_000)));
   }
 
   return NextResponse.json(
