@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isEthereumAddress } from '@/lib/etherscan';
 import { MAX_WALLETS_PER_CASE } from '@/lib/case-constants';
+import { getOwnedCaseList } from '@/lib/case-list';
 import {
   caseFields,
   caseWalletFields,
@@ -49,32 +50,11 @@ export async function GET(request: NextRequest) {
   if (!user) return response({ error: 'Sign in to view cases.' }, 401);
   if (!admin) return response({ error: 'Case management is not configured on this server.' }, 503);
 
-  const { data: cases, error: caseError } = await admin
-    .from('investigation_cases')
-    .select(caseFields)
-    .eq('created_by', user.id)
-    .order('updated_at', { ascending: false });
-  if (caseError) return response({ error: 'Unable to load cases.' }, 500);
-
-  const caseRows = (cases || []) as InvestigationCase[];
-  const ids = caseRows.map((caseRecord) => caseRecord.id);
-  let wallets: CaseWallet[] = [];
-  if (ids.length > 0) {
-    const { data, error } = await admin
-      .from('case_wallets')
-      .select(caseWalletFields)
-      .in('case_id', ids)
-      .order('added_at', { ascending: true });
-    if (error) return response({ error: 'Unable to load case wallets.' }, 500);
-    wallets = (data || []) as CaseWallet[];
+  try {
+    return response({ cases: await getOwnedCaseList(admin, user.id) });
+  } catch {
+    return response({ error: 'Unable to load complete cases and wallets. Please retry.' }, 500);
   }
-
-  return response({
-    cases: caseRows.map((caseRecord) => ({
-      ...caseRecord,
-      wallets: wallets.filter((wallet) => wallet.case_id === caseRecord.id),
-    })),
-  });
 }
 
 export async function POST(request: NextRequest) {
