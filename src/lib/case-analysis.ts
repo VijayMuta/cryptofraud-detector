@@ -1,5 +1,5 @@
 import { CASE_HISTORY_SOURCE, fetchCaseTransactionHistory } from '@/lib/case-history';
-import { analyzeWalletTransactions, formatEth, type WalletTransaction } from '@/lib/wallet-analysis';
+import { analyzeWalletTransactions, formatEth, hasPositiveTransferredValue, type WalletTransaction } from '@/lib/wallet-analysis';
 import { MAX_WALLETS_PER_CASE } from '@/lib/case-constants';
 
 const TEMPORAL_WINDOW_MS = 24 * 60 * 60 * 1_000;
@@ -131,7 +131,7 @@ function relationshipMaps(histories: WalletHistory[]) {
       }
       if (to === wallet && from !== wallet) {
         recordRelation(counterparties, from, wallet, transaction);
-        recordRelation(sources, from, wallet, transaction);
+        if (hasPositiveTransferredValue(transaction)) recordRelation(sources, from, wallet, transaction);
       }
     }
   }

@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { TransactionLink } from '@/components/transaction-link';
 import { useMemo, useState, type ReactNode } from 'react';
-import { WalletAddress } from './wallet-address';
-import { directionFor, formatEth, type WalletAnalysis, type WalletTransaction } from '@/lib/wallet-analysis';
+import { WalletAddress } from '@/components/wallet-address';
+import { directionFor, formatEth, fundingSourcesFor, type WalletAnalysis, type WalletTransaction } from '@/lib/wallet-analysis';
 import { summarizeIntelligence } from '@/lib/blockchain-intelligence';
 
 function date(value: string | null) {
@@ -20,7 +20,7 @@ export function BlockchainWorkspace({ address, transactions, analysis }: { addre
   const currentPage = Math.min(page, pages - 1);
   const confirmed = analysis.successfulTransactionCount > 0;
   const value = (wei: bigint | null) => confirmed ? formatEth(wei) : 'Unavailable';
-  const sources = analysis.counterparties.filter(party => party.incomingCount > 0);
+  const sources = fundingSourcesFor(analysis);
   const destinations = analysis.counterparties.filter(party => party.outgoingCount > 0);
 
   return <div className="space-y-6">
@@ -59,7 +59,7 @@ export function BlockchainWorkspace({ address, transactions, analysis }: { addre
     </Panel>
     <Panel title="Counterparty intelligence">
       <p className="mb-4 text-xs text-slate-400">All {analysis.counterparties.length} observed counterparties, ranked by successful interaction count. Repeated means at least two interactions; repeated destination means at least two outgoing transfers.</p>
-      {!analysis.counterparties.length ? <p className="text-sm text-slate-400">Insufficient successful transfer evidence.</p> : <div className="overflow-x-auto"><table className="technical-table min-w-[700px]"><thead><tr><th>Address</th><th>Incoming / outgoing</th><th>Received / sent ETH</th><th>Relationship</th></tr></thead><tbody>{analysis.counterparties.map(party => <tr key={party.address}><td><WalletAddress address={party.address} /></td><td>{party.incomingCount} / {party.outgoingCount}</td><td>{formatEth(party.incomingWei)} / {formatEth(party.outgoingWei)}</td><td>{party.incomingCount && party.outgoingCount ? 'Bidirectional' : party.incomingCount ? 'Funding source' : 'Destination'}{party.incomingCount + party.outgoingCount >= 2 ? ' · Repeated' : ''}{party.outgoingCount >= 2 ? ' · Repeated destination' : ''}</td></tr>)}</tbody></table></div>}
+      {!analysis.counterparties.length ? <p className="text-sm text-slate-400">Insufficient successful transfer evidence.</p> : <div className="overflow-x-auto"><table className="technical-table min-w-[700px]"><thead><tr><th>Address</th><th>Incoming / outgoing</th><th>Received / sent ETH</th><th>Relationship</th></tr></thead><tbody>{analysis.counterparties.map(party => <tr key={party.address}><td><WalletAddress address={party.address} /></td><td>{party.incomingCount} / {party.outgoingCount}</td><td>{formatEth(party.incomingWei)} / {formatEth(party.outgoingWei)}</td><td>{party.incomingCount && party.outgoingCount ? 'Bidirectional' : party.incomingCount ? (party.incomingWei > 0n ? 'Funding source' : 'Incoming counterparty') : 'Destination'}{party.incomingCount + party.outgoingCount >= 2 ? ' · Repeated' : ''}{party.outgoingCount >= 2 ? ' · Repeated destination' : ''}</td></tr>)}</tbody></table></div>}
     </Panel>
     <Panel title="Activity timeline · UTC">
       <p className="text-xs leading-6 text-slate-400">Daily counts across all retrieved statuses. Cyan: incoming; violet: outgoing; gray: self or unclassified. Only observed dates are shown; gaps do not prove inactivity.</p>

@@ -65,6 +65,24 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const SPLITTING_WINDOW_MS = DAY_MS;
 const SPLITTING_DESTINATION_THRESHOLD = 3;
 
+/** Funding requires an observed positive wei amount, without defaulting unknown amounts to zero. */
+export function hasPositiveTransferredValue(transaction: Pick<WalletTransaction, 'value'>) {
+  return /^\d+$/.test(transaction.value) && BigInt(transaction.value) > ZERO_WEI;
+}
+
+/** Keep activity counts separate from the transactions that actually supplied ETH. */
+export function fundingSourcesFor(analysis: WalletAnalysis): Counterparty[] {
+  const sources = new Map<string, Counterparty>();
+  for (const transaction of analysis.incomingTransactions) {
+    if (hasPositiveTransferredValue(transaction)) {
+      addCounterparty(sources, transaction.from, 'incoming', transaction.valueWei);
+    }
+  }
+  return Array.from(sources.values()).sort((a, b) =>
+    b.incomingCount - a.incomingCount || (a.incomingWei === b.incomingWei ? 0 : a.incomingWei > b.incomingWei ? -1 : 1),
+  );
+}
+
 function safeWei(value: string) {
   if (!/^\d+$/.test(value)) return ZERO_WEI;
   return BigInt(value);
