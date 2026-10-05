@@ -63,16 +63,10 @@ test('new monitoring descriptions preserve whole ETH without changing stored wei
   etherscan.fetchMonitoringPage = async () => transactions;
   etherscan.fetchMonitoringHeadBlock = async () => 1;
   const { runWalletMonitor } = load('src/lib/monitoring.ts');
-  let storedTransactions = [], storedAlerts = [];
   // In-memory persistence only; no provider or database is contacted.
-  const admin = { async rpc(name, input) {
-    if (name === 'get_wallet_monitor_cursor') return { data: { confirmedBlock: 0, scanFrom: 1, scanTo: null, nextPage: 1, revision: 0, context: [] }, error: null };
-    assert.equal(name, 'persist_wallet_monitor_page');
-    storedTransactions = input.p_transactions;
-    storedAlerts = input.p_alerts;
-    return { error: null, data: { newTransactionCount: storedTransactions.length, newAlertCount: storedAlerts.length, cursor: {} } };
-  } };
+  const admin = require('./monitoring-fixture.cjs').database();
   const result = await runWalletMonitor(admin, { id: 'test-monitor', address: A });
+  const storedTransactions = admin.state.transactions, storedAlerts = admin.state.alerts;
   assert.equal(result.error, undefined);
   assert.equal(storedAlerts.length, 1);
   assert.equal(storedAlerts[0].alert_type, 'unusual_movement');

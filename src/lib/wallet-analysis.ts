@@ -62,7 +62,7 @@ export type WalletAnalysis = {
 
 const ZERO_WEI = BigInt('0');
 const DAY_MS = 24 * 60 * 60 * 1_000;
-const SPLITTING_WINDOW_MS = DAY_MS;
+export const SPLITTING_WINDOW_MS = DAY_MS;
 const SPLITTING_DESTINATION_THRESHOLD = 3;
 
 /** Funding requires an observed positive wei amount, without defaulting unknown amounts to zero. */

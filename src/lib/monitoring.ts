@@ -1,11 +1,13 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchEthereumTransactions, fetchMonitoringHeadBlock, fetchMonitoringPage } from '@/lib/etherscan';
+import { fetchMonitoringSplittingContext } from '@/lib/monitoring-splitting-context';
 import {
   analyzeWalletTransactions,
   findFundSplittingAlarm,
   formatEth,
   type WalletAnalysis,
   type WalletTransaction,
+  type AnalyzedTransaction,
 } from '@/lib/wallet-analysis';
 
 const ZERO_WEI = BigInt(0);
@@ -138,12 +140,13 @@ function fundSplittingAlert(
   monitor: WalletMonitor,
   analysis: WalletAnalysis,
   newlyInsertedHashes: Set<string>,
+  outgoingTransactions: AnalyzedTransaction[],
 ) {
   // Stable hash ordering resolves equal timestamps without provider-order ties.
   // Filter eligible triggering windows BEFORE ranking, so an older stronger
   // pattern cannot suppress new evidence. Historical rows remain context.
   const splitting = findFundSplittingAlarm(
-    [...analysis.outgoingTransactions].sort((a, b) => a.hash.toLowerCase().localeCompare(b.hash.toLowerCase())),
+    [...outgoingTransactions].sort((a, b) => a.hash.toLowerCase().localeCompare(b.hash.toLowerCase())),
     newlyInsertedHashes,
   );
   if (!splitting || splitting.transactionHashes.length === 0) return null;
@@ -247,9 +250,17 @@ export async function runWalletMonitor(
       const candidateHashes = new Set(page.map(transactionHash));
       const alerts = unusualMovementAlerts(monitor, transactions, candidateHashes, analysis);
       const contextHashes = new Set(cursor.context.map(transactionHash));
-      const splittingAlert = fundSplittingAlert(monitor, analysis,
-        new Set([...candidateHashes].filter(hash => !contextHashes.has(hash))));
+      const newHashes = new Set([...candidateHashes].filter(hash => !contextHashes.has(hash)));
+      const persistedSplitting = await fetchMonitoringSplittingContext(admin, monitor.id, monitor.address,
+        analysis.outgoingTransactions.filter(tx => newHashes.has(transactionHash(tx))), deadline);
+      const splittingRows = new Map(persistedSplitting.map(tx => [transactionHash(tx), tx]));
+      // Inclusive provider pages can replay stored rows outside the cursor's
+      // latest-100 sample. They remain evidence, never new triggering hashes.
+      for (const tx of persistedSplitting) newHashes.delete(transactionHash(tx));
+      for (const tx of analysis.outgoingTransactions) splittingRows.set(transactionHash(tx), tx);
+      const splittingAlert = fundSplittingAlert(monitor, analysis, newHashes, [...splittingRows.values()]);
       if (splittingAlert) alerts.push(splittingAlert);
+      if (Date.now() >= deadline) throw new Error(INCOMPLETE);
       const { data, error } = await admin.rpc('persist_wallet_monitor_page', {
         ...identity, p_checked_at: checkedAt,
         p_expected_revision: cursor.revision, p_scan_from: cursor.scanFrom,

@@ -40,8 +40,9 @@ and cursor together. Previously committed pages remain durable. Stale concurrent
 pages fail and must reload the cursor. Lost responses are safe to retry; response
 counts may understate writes whose successful response was lost.
 
-Detector thresholds are unchanged. Each page is analyzed with up to 100 recently
-stored transactions as context. Only newly inserted transaction hashes can create
+Detector thresholds are unchanged. General analytics use up to 100 recently
+stored transactions as context. AUD-H04 adds complete persisted outgoing context
+for splitting detection; see MONITORING-SPLITTING-CONTEXT.md. Only newly inserted transaction hashes can create
 alerts. Baseline rows retain their existing analysis and cannot generate retroactive
 alerts. Both older-than-newest-100 and later-page alert cases are covered by tests.
 
@@ -122,9 +123,9 @@ operator should perform these checks in a disposable test Supabase project:
 - Normal Ethereum transactions only; internal transfers and token events are not
   added. Extreme single-block histories remain subject to provider paging limits;
   provider errors retain incomplete status for a later retry/operator review.
-- Detector context is bounded, not a full 24-hour history for arbitrarily busy
-  wallets. Pagination can change statistical context relative to the old sample;
-  tests establish representative alert retention, not detection of every anomaly.
+- General statistical context remains bounded. Splitting detection now retrieves
+  complete eligible persisted context for new triggers (AUD-H04), failing visibly
+  if retrieval cannot complete. This does not backfill pre-enrollment history.
 - Baseline setup concurrency and best-effort diagnostic status writes remain as
   before. A stale attempt can overwrite a newer diagnostic error/time, but cannot
   advance its checkpoint or write duplicate evidence. Large backlogs require

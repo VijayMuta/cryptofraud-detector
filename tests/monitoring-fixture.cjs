@@ -25,6 +25,7 @@ function database(options = {}) {
   let failure = null;
   const calls = [];
   const enrollments = [];
+  const contextCalls = [];
   const abort = stage => { if (failure === stage) { failure = null; throw new Error('fixture persistence failure'); } };
   const initialize = () => {
     const boundary = Math.max(0, ...state.transactions.map(row => Number(row.block_number)));
@@ -37,6 +38,7 @@ function database(options = {}) {
   return {
     calls,
     enrollments,
+    contextCalls,
     get state() { return structuredClone(state); },
     failAt(stage) { failure = stage; },
     setActive(active) {
@@ -124,7 +126,40 @@ function database(options = {}) {
       } catch (error) { return { error, data: null }; }
     },
     from(table) { return {
-      select() {
+      select(fields, settings) {
+        if (table === 'monitor_transactions') {
+          assert.ok(fields.includes('value_wei::text'));
+          assert.ok(fields.includes('block_number::text'));
+          assert.equal(settings.count, 'exact');
+          const filters = [];
+          let limit, ordering;
+          return {
+            eq(key, value) { filters.push(['eq', key, value]); return this; },
+            neq(key, value) { filters.push(['neq', key, value]); return this; },
+            gt(key, value) { filters.push(['gt', key, value]); return this; },
+            gte(key, value) { filters.push(['gte', key, value]); return this; },
+            lte(key, value) { filters.push(['lte', key, value]); return this; },
+            order(key, order) { ordering = key; assert.equal(order.ascending, true); return this; },
+            limit(value) { limit = value; return this; },
+            abortSignal() { return this; },
+            then(resolve, reject) {
+              return Promise.resolve().then(() => {
+                contextCalls.push(structuredClone(filters));
+                if (contextCalls.length === options.failContextPage) return { data: null, count: null, error: new Error('context page failed') };
+                let rows = state.transactions.filter(row => filters.every(([op, key, value]) => {
+                  if (row[key] === null || row[key] === undefined) return false;
+                  const actual = key === 'value_wei' ? BigInt(row[key]) : key === 'occurred_at' ? Date.parse(row[key]) : row[key];
+                  const target = key === 'value_wei' ? BigInt(value) : key === 'occurred_at' ? Date.parse(value) : value;
+                  return op === 'eq' ? actual === target : op === 'neq' ? actual !== target : op === 'gt' ? actual > target : op === 'gte' ? actual >= target : actual <= target;
+                })).sort((a, b) => a[ordering].localeCompare(b[ordering]));
+                const count = rows.length;
+                rows = rows.slice(0, Math.min(limit, options.contextPageCap ?? limit)).map(row => ({ ...row, block_number: String(row.block_number) }));
+                const result = { data: structuredClone(rows), count, error: null };
+                return options.contextResponse ? options.contextResponse(result, contextCalls.length) : result;
+              }).then(resolve, reject);
+            },
+          };
+        }
         assert.equal(table, 'wallet_monitors');
         const filters = [];
         return { eq(key, value) { filters.push([key, value]); return this; }, async maybeSingle() {
