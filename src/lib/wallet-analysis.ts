@@ -84,7 +84,7 @@ export function fundingSourcesFor(analysis: WalletAnalysis): Counterparty[] {
 }
 
 function safeWei(value: string) {
-  if (!/^\d+$/.test(value)) return ZERO_WEI;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('Transaction amount is unavailable or invalid.');
   return BigInt(value);
 }
 

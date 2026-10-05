@@ -66,6 +66,9 @@ function analysisSnapshot(analysis: WalletAnalysis) {
 }
 
 function monitoringTransactionRow(monitorId: string, transaction: WalletTransaction) {
+  if (typeof transaction.value !== 'string' || !/^\d+$/.test(transaction.value)) {
+    throw new Error('Transaction amount is unavailable or invalid. Retry the request.');
+  }
   const blockNumber = /^\d+$/.test(transaction.blockNumber) ? Number(transaction.blockNumber) : null;
 
   return {
@@ -75,7 +78,7 @@ function monitoringTransactionRow(monitorId: string, transaction: WalletTransact
     occurred_at: transaction.timestamp,
     from_address: transaction.from.toLowerCase(),
     to_address: transaction.to?.toLowerCase() || null,
-    value_wei: /^\d+$/.test(transaction.value) ? transaction.value : '0',
+    value_wei: transaction.value,
     status: transaction.status,
   };
 }

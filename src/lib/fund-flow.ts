@@ -29,7 +29,7 @@ export function buildFundFlow(reportedWallets: string[], wallets: WalletEvidence
   }
   const eligible = [...byHash.values()].filter(tx => !conflicts.has(tx.hash) && tx.status === 'success' && normalizeAttributionAddress(tx.from) && tx.to && normalizeAttributionAddress(tx.to) && /^\d+$/.test(tx.value) && BigInt(tx.value) > 0n && (reported.has(tx.from) || reported.has(tx.to!)))
     .sort((a, b) => (Date.parse(b.timestamp || '') || 0) - (Date.parse(a.timestamp || '') || 0) || a.hash.localeCompare(b.hash));
-  const analyses = new Map([...reported].filter(address => wallets.some(wallet => wallet.address.toLowerCase() === address && normalizeAttributionNetwork(wallet.network) === 'eip155:1')).map(address => [address, analyzeWalletTransactions(address, [...byHash.values()].filter(tx => !conflicts.has(tx.hash) && (tx.from === address || tx.to === address)))]));
+  const analyses = new Map([...reported].filter(address => wallets.some(wallet => wallet.address.toLowerCase() === address && normalizeAttributionNetwork(wallet.network) === 'eip155:1')).map(address => [address, analyzeWalletTransactions(address, [...byHash.values()].filter(tx => !conflicts.has(tx.hash) && typeof tx.value === 'string' && /^\d+$/.test(tx.value) && (tx.from === address || tx.to === address)))]));
   const splittingHashes = new Set([...analyses.values()].flatMap(analysis => analysis.splittingAlarm?.transactionHashes || []));
   const destinationCounts = new Map<string, number>();
   for (const tx of eligible) if (reported.has(tx.from)) destinationCounts.set(tx.to!, (destinationCounts.get(tx.to!) || 0) + 1);

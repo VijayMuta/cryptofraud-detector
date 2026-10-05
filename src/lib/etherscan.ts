@@ -115,6 +115,11 @@ async function fetchEthereumTransactionsPage(
   }
 
   const sourceTransactions = Array.isArray(payload.result) ? payload.result : [];
+  // Enrollment uses the normal-history path too. Unknown value must never
+  // become a persisted zero or disappear from an otherwise successful page.
+  if (sourceTransactions.some(row => row && typeof row === 'object' && !/^\d+$/.test(readString(row.value)))) {
+    throw new EthereumServiceError('Ethereum transaction amount is unavailable or invalid. Retry the request.');
+  }
   // Monitoring must never interpret a malformed/truncated response as range exhaustion.
   if (range && (!Array.isArray(payload.result) || sourceTransactions.length > limit || sourceTransactions.some(row =>
     !row || typeof row !== 'object' || !/^0x[0-9a-f]{64}$/i.test(readString(row.hash)) ||

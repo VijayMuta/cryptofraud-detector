@@ -77,8 +77,9 @@ function hexToDecimal(value: unknown) {
 }
 
 function weiFromRawContract(rawContract: unknown) {
-  if (!isRecord(rawContract)) return '0';
-  return hexToDecimal(rawContract.value) || '0';
+  const value = isRecord(rawContract) ? hexToDecimal(rawContract.value) : '';
+  if (!value) throw new AlchemyServiceError('Ethereum transaction amount is unavailable or invalid. Please retry.');
+  return value;
 }
 
 function timestampFromMetadata(metadata: unknown) {
