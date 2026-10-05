@@ -133,7 +133,7 @@ function addCounterparty(
   counterparties.set(key, current);
 }
 
-function findFundSplittingAlarm(outgoingTransactions: AnalyzedTransaction[]) {
+export function findFundSplittingAlarm(outgoingTransactions: AnalyzedTransaction[], triggeringHashes?: ReadonlySet<string>) {
   const transfers = outgoingTransactions
     .filter(
       (transaction) =>
@@ -160,6 +160,9 @@ function findFundSplittingAlarm(outgoingTransactions: AnalyzedTransaction[]) {
       totalWei += candidate.valueWei;
 
       if (destinations.size < SPLITTING_DESTINATION_THRESHOLD) continue;
+      // Monitoring ranks only windows ending in a newly observed transfer.
+      // With no trigger filter, general wallet analysis retains its behavior.
+      if (triggeringHashes && !triggeringHashes.has(candidate.hash.toLowerCase())) continue;
 
       const match = {
         start: start.timestamp || '',

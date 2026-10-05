@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchEthereumTransactions, fetchMonitoringHeadBlock, fetchMonitoringPage } from '@/lib/etherscan';
 import {
   analyzeWalletTransactions,
+  findFundSplittingAlarm,
   formatEth,
   type WalletAnalysis,
   type WalletTransaction,
@@ -138,7 +139,13 @@ function fundSplittingAlert(
   analysis: WalletAnalysis,
   newlyInsertedHashes: Set<string>,
 ) {
-  const splitting = analysis.splittingAlarm;
+  // Stable hash ordering resolves equal timestamps without provider-order ties.
+  // Filter eligible triggering windows BEFORE ranking, so an older stronger
+  // pattern cannot suppress new evidence. Historical rows remain context.
+  const splitting = findFundSplittingAlarm(
+    [...analysis.outgoingTransactions].sort((a, b) => a.hash.toLowerCase().localeCompare(b.hash.toLowerCase())),
+    newlyInsertedHashes,
+  );
   if (!splitting || splitting.transactionHashes.length === 0) return null;
 
   const triggeringHash = splitting.transactionHashes[splitting.transactionHashes.length - 1].toLowerCase();
@@ -153,7 +160,7 @@ function fundSplittingAlert(
     description: `${splitting.transactionCount} successful outgoing transfers sent ${formatEth(splitting.totalWei)} to ${splitting.destinationCount} distinct addresses within 24 hours.`,
     risk_score: analysis.risk.score,
     details: {
-      analysis: analysisSnapshot(analysis),
+      analysis: analysisSnapshot({ ...analysis, splittingAlarm: splitting }),
       windowStart: splitting.start,
       windowEnd: splitting.end,
       transactionHashes: splitting.transactionHashes,
@@ -239,7 +246,9 @@ export async function runWalletMonitor(
       const analysis = analyzeWalletTransactions(monitor.address, transactions);
       const candidateHashes = new Set(page.map(transactionHash));
       const alerts = unusualMovementAlerts(monitor, transactions, candidateHashes, analysis);
-      const splittingAlert = fundSplittingAlert(monitor, analysis, candidateHashes);
+      const contextHashes = new Set(cursor.context.map(transactionHash));
+      const splittingAlert = fundSplittingAlert(monitor, analysis,
+        new Set([...candidateHashes].filter(hash => !contextHashes.has(hash))));
       if (splittingAlert) alerts.push(splittingAlert);
       const { data, error } = await admin.rpc('persist_wallet_monitor_page', {
         ...identity, p_checked_at: checkedAt,
