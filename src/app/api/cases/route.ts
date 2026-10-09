@@ -2,13 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isEthereumAddress } from '@/lib/etherscan';
 import { MAX_WALLETS_PER_CASE } from '@/lib/case-constants';
 import { getOwnedCaseList } from '@/lib/case-list';
-import {
-  caseFields,
-  caseWalletFields,
-  isCaseStatus,
-  type CaseWallet,
-  type InvestigationCase,
-} from '@/lib/cases';
+import { isCaseStatus } from '@/lib/cases';
 import { getRequestUser } from '@/lib/request-auth';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
@@ -80,26 +74,28 @@ export async function POST(request: NextRequest) {
   if (addresses.length > MAX_WALLETS_PER_CASE) {
     return response({ error: `A live cross-wallet analysis supports up to ${MAX_WALLETS_PER_CASE} suspect wallets per case.` }, 400);
   }
-
-  const { data: caseRecord, error: caseError } = await admin
-    .from('investigation_cases')
-    .insert({ title, description, status, created_by: user.id })
-    .select(caseFields)
-    .single();
-  if (caseError || !caseRecord) return response({ error: 'Unable to create the case.' }, 500);
-
-  if (addresses.length > 0) {
-    const { error: walletError } = await admin.from('case_wallets').insert(
-      addresses.map((address) => ({ case_id: caseRecord.id, address, network: 'ethereum', added_by: user.id })),
-    );
-    if (walletError) return response({ error: 'Case created, but its suspect wallets could not be saved.' }, 500);
+  const key = request.headers.get('Idempotency-Key') || '';
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) {
+    return response({ error: 'A valid case creation attempt key is required.' }, 400);
   }
-
-  const { data: wallets } = await admin
-    .from('case_wallets')
-    .select(caseWalletFields)
-    .eq('case_id', caseRecord.id)
-    .order('added_at', { ascending: true });
-
-  return response({ case: { ...(caseRecord as InvestigationCase), wallets: (wallets || []) as CaseWallet[] } }, 201);
+  const unavailable = () => response({ error: 'Case creation could not be confirmed. Retry the same attempt; do not start a new attempt until its outcome is known.' }, 503);
+  try {
+    const { data, error } = await admin.rpc('create_case_atomic', {
+      p_user_id: user.id, p_idempotency_key: key, p_title: title,
+      p_description: description, p_status: status, p_wallets: addresses,
+    });
+    if (error?.code === 'PT409') return response({ error: 'This creation attempt already used different details. Retry its original details or review your case list.' }, 409);
+    if (error?.code === 'PT410') return response({ error: 'The case created by this attempt is no longer available. This attempt cannot recreate it.' }, 410);
+    if (error?.code === '22023') return response({ error: 'Invalid case creation details.' }, 400);
+    if (error?.code === 'PGRST202' || error?.code === '42883' || error?.code === '42P01') {
+      return response({ error: 'Atomic case creation is unavailable. An administrator must apply supabase-case-creation.sql before cases can be created. Retry the same attempt afterward.' }, 503);
+    }
+    const record = data?.case;
+    if (error || typeof data?.created !== 'boolean' || !record || typeof record.id !== 'string' ||
+        record.created_by !== user.id || typeof record.case_code !== 'string' ||
+        !Array.isArray(record.wallets) || record.wallets.some(wallet => wallet.case_id !== record.id || wallet.added_by !== user.id)) return unavailable();
+    return response({ case: record, created: data.created }, data.created ? 201 : 200);
+  } catch {
+    return unavailable();
+  }
 }

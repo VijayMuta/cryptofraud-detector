@@ -4,12 +4,14 @@ import { WalletAddress } from '@/components/wallet-address';
 
 import Link from 'next/link';
 import { reportCaseDraft } from '@/lib/victim-reports';
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ArrowDownUp, ChevronLeft, ChevronRight, FolderKanban, GitMerge, Loader2, Plus, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import { CaseConnectionAnalysisPanel } from '@/components/case-connection-analysis';
 import type { CaseConnectionAnalysis } from '@/lib/case-analysis';
 import { authenticatedFetch } from '@/lib/client-api';
 import { isEthereumAddress } from '@/lib/etherscan';
+import { caseCreationAttempt } from '@/lib/case-creation-attempt';
+import { getSupabaseBrowser } from '@/lib/supabase';
 
 type CaseWallet = { id: string; address: string; network: 'ethereum'; added_at: string };
 type CaseRecord = { id: string; case_code: string; title: string; description: string; status: 'open' | 'investigating' | 'closed' | 'archived'; created_at: string; updated_at: string; wallets: CaseWallet[] };
@@ -31,6 +33,7 @@ export default function Cases() {
   const [cases, setCases] = useState<CaseRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const creationInFlight = useRef(false);
   const [merging, setMerging] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -98,26 +101,36 @@ export default function Cases() {
 
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (creationInFlight.current) return;
     const walletAddress = wallet.trim();
     if (walletAddress && !isEthereumAddress(walletAddress)) {
       setError('Enter a valid Ethereum wallet address beginning with 0x.');
       return;
     }
+    creationInFlight.current = true;
     setSubmitting(true);
     setError('');
     setMessage('');
     try {
-      const response = await authenticatedFetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: title.trim(), description: description.trim(), status, wallets: walletAddress ? [walletAddress] : [] }) });
+      const { data } = await getSupabaseBrowser().auth.getSession();
+      if (!data.session?.user.id) throw new Error('Your session has expired. Please sign in again.');
+      const attempt = await caseCreationAttempt(window.sessionStorage, data.session.user.id, {
+        title, description, status, wallets: walletAddress ? [walletAddress] : [],
+      });
+      const response = await authenticatedFetch('/api/cases', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': attempt.key }, body: JSON.stringify(attempt.payload) });
       const payload = await response.json();
       if (!response.ok) throw new Error(typeof payload?.error === 'string' ? payload.error : 'Unable to create case.');
       const created = payload.case as CaseRecord;
-      setCases((current) => [created, ...current]);
+      if (!created?.id || !Array.isArray(created.wallets)) throw new Error('Case creation could not be confirmed. Retry the same details.');
+      attempt.complete();
+      setCases((current) => [created, ...current.filter(item => item.id !== created.id)]);
       setCaseAId(created.id);
       setTitle(''); setDescription(''); setWallet(''); setStatus('open');
-      setMessage(`Case ${created.case_code} was created.`);
+      setMessage(`Case ${created.case_code} ${payload.created === false ? 'was recovered from the previous creation attempt' : 'was created'}.`);
     } catch (createError) {
-      setError(createError instanceof Error ? createError.message : 'Unable to create case.');
+      setError((createError instanceof Error ? createError.message : 'Unable to create case.') + ' If the outcome is uncertain, retry the same details in this tab before changing them or starting another case.');
     } finally {
+      creationInFlight.current = false;
       setSubmitting(false);
     }
   }
