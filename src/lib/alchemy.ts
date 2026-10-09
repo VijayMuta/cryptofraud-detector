@@ -234,17 +234,35 @@ async function fetchTransactionStatuses(endpoint: string, hashes: string[], stri
   let rateLimited = false;
   let partialRpcFailure = false;
   let partialRpcCode: number | undefined;
+  const seenIds = new Set<number>();
+  const invalidIdentities = new Set<string>();
+  // A batch must associate each requested transaction with one response only.
+  // Reject duplicate IDs before reading statuses so response order cannot pick
+  // a winner between conflicting receipts (or a receipt and an RPC error).
+  for (const response of payload) {
+    if (!isRecord(response) || typeof response.id !== 'number' || !Number.isInteger(response.id) || !hashes[response.id]) continue;
+    const id = response.id;
+    if (seenIds.has(id)) invalidIdentities.add(hashes[id]);
+    seenIds.add(id);
+  }
   for (const receiptResponse of payload) {
-    if (!isRecord(receiptResponse) || typeof receiptResponse.id !== 'number') continue;
+    if (!isRecord(receiptResponse) || typeof receiptResponse.id !== 'number' || !Number.isInteger(receiptResponse.id)) continue;
+    const hash = hashes[receiptResponse.id];
+    if (!hash || invalidIdentities.has(hash)) continue;
     if (receiptResponse.error) {
       const code = isRecord(receiptResponse.error) && typeof receiptResponse.error.code === 'number' ? receiptResponse.error.code : undefined;
       if (code === 429 && attempt < (allowPartial ? 3 : MAX_RATE_LIMIT_RETRIES)) { rateLimited = true; continue; }
       if (allowPartial) { partialRpcFailure = true; partialRpcCode = code; continue; }
       return failed('rpc', undefined, code);
     }
-    const hash = hashes[receiptResponse.id];
     const receipt = isRecord(receiptResponse.result) ? receiptResponse.result : null;
-    if (!hash || !receipt) continue;
+    if (!receipt) continue;
+
+    const receiptHash = readString(receipt.transactionHash);
+    if (!/^0x[0-9a-f]{64}$/i.test(receiptHash) || receiptHash.toLowerCase() !== hash.toLowerCase()) {
+      invalidIdentities.add(hash);
+      continue;
+    }
 
     const status = readString(receipt.status).toLowerCase();
     if (status === '0x1') statuses.set(hash, 'success');
@@ -254,7 +272,7 @@ async function fetchTransactionStatuses(endpoint: string, hashes: string[], stri
   if (partialRpcFailure) failed('rpc', undefined, partialRpcCode);
   if (rateLimited) {
     await new Promise(resolve => setTimeout(resolve, 500 * 2 ** attempt));
-    const retried = await fetchTransactionStatuses(endpoint, hashes.filter(hash => !statuses.has(hash)), strict, attempt + 1, allowPartial);
+    const retried = await fetchTransactionStatuses(endpoint, hashes.filter(hash => !statuses.has(hash) && !invalidIdentities.has(hash)), strict, attempt + 1, allowPartial);
     for (const [hash, status] of retried) statuses.set(hash, status);
   }
   if (strict && statuses.size !== hashes.length) return failed('receipts');

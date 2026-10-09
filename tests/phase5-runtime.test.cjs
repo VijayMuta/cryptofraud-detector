@@ -12,7 +12,7 @@ function transfer(n, from, to) {
   return { hash: hash(n), from, to, blockNum: '0x10', rawContract: { value: '0xde0b6b3a7640000' }, metadata: { blockTimestamp: `2025-01-01T00:0${n}:00.000Z` } };
 }
 function json(body, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }); }
-function receipts(batch) { return json(batch.map(request => ({ id: request.id, result: { status: '0x1' } })).reverse()); }
+function receipts(batch) { return json(batch.map(request => ({ id: request.id, result: { transactionHash: request.params[0], status: '0x1' } })).reverse()); }
 function indexedTransfer(row, overrides = {}) {
   return { hash: row.hash, from: row.from, to: row.to, blockNumber: BigInt(row.blockNum).toString(), value: BigInt(row.rawContract.value).toString(), timeStamp: String(Date.parse(row.metadata.blockTimestamp) / 1000), isError: '0', txreceipt_status: '1', ...overrides };
 }
@@ -140,7 +140,7 @@ test('Phase 5 shared Ethereum provider regressions', async t => {
       const body = JSON.parse(options.body);
       if (!Array.isArray(body)) return json({ result: { transfers: [transfer(1, A, B), transfer(2, A, C)] } });
       batches.push(body.map(request => request.params[0]));
-      if (batches.length === 1) return json([{ id: 0, result: { status: '0x1' } }, { id: 1, error: { code: 429, message: 'Rate limited' } }]);
+      if (batches.length === 1) return json([{ id: 0, result: { transactionHash: body[0].params[0], status: '0x1' } }, { id: 1, error: { code: 429, message: 'Rate limited' } }]);
       return receipts(body);
     };
     const rows = await fetchAlchemyTransactionHistory(A, { requireReceipts: true });
